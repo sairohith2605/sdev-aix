@@ -9,12 +9,19 @@ npm run dev
 
 The local development URL is printed by Vite (normally `http://localhost:5173`). For the production bundle, run `npm run build` and serve `dist/` with a static web server.
 
+## Navigation
+
+The frontend uses React Router with a shared top navigation. `/` redirects to `/work-items`. The UI routes are `/work-items`, `/work-items/:workItemId`, `/plans`, `/plans/:planId`, and `/connections`; unknown routes show a not-found page. The work-item, plan, and connection screens are placeholders for the next UI checkpoints.
+
+When serving `dist/`, configure the web server to serve `index.html` for unknown paths so direct links and reloads work.
+
 ## Checks
 
 ```sh
 npm run lint
 npm run typecheck
 npm run format:check
+npm run test
 npm run build
 ```
 

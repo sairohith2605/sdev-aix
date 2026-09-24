@@ -1,0 +1,20 @@
+# Local environment values and credentials
+.env
+.env.*
+*.env.local
+
+# Local tool and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Frontend artifacts
+node_modules/
+dist/
+coverage/
+
+# Future Python tooling
+__pycache__/
+.pytest_cache/
+.venv/
+*.py[cod]

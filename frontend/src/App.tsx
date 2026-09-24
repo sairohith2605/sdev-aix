@@ -8,7 +8,7 @@ export function App() {
     <main className="flex min-h-svh items-center justify-center px-6 py-12">
       <div className="flex w-full max-w-xl flex-col gap-4">
         <p className="text-xs font-medium tracking-widest text-primary uppercase">
-          Work Item Planner
+          sdev-aix
         </p>
         <h1 className="text-3xl font-semibold tracking-tight">
           Frontend foundation is ready.

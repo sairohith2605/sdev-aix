@@ -1,4 +1,4 @@
-# Work Item Planner
+# sdev-aix
 
 A local-first, open-source application for turning Azure DevOps work items into reviewable functional and technical plans. Development starts with a frontend prototype; FastAPI, provider connections, and the planning workflow follow as separate milestones.
 
@@ -32,3 +32,7 @@ The remaining entries are planned backend configuration and will be wired up in 
 4. Copilot/API-key providers and the resumable planning workflow.
 
 The repository is ready for a commit after each checkpoint; no commit is created automatically.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

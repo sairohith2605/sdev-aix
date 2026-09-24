@@ -1,4 +1,4 @@
-# Frontend
+# sdev-aix frontend
 
 React, TypeScript, Vite, and shadcn/ui using preset `bKZUocjI` (Base UI Mira, stone/cyan, Geist, Lucide). Run the commands below from this directory.
 

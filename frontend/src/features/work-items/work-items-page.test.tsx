@@ -84,19 +84,6 @@ describe("work-item browser", () => {
         name: "Let members sign in with single sign-on",
       })
     ).toBeInTheDocument()
-    expect(
-      screen.queryByText("Planning workflow coming soon.")
-    ).not.toBeInTheDocument()
-
-    await user.hover(
-      screen.getByLabelText(
-        "Create plan unavailable: Planning workflow coming soon."
-      )
-    )
-
-    expect(
-      await screen.findByText("Planning workflow coming soon.")
-    ).toBeInTheDocument()
     expect(screen.getByTestId("location")).toHaveTextContent("/work-items/1042")
   })
 
@@ -119,12 +106,7 @@ describe("work-item browser", () => {
     expect(within(metadata).getByText("Avery Chen")).toBeInTheDocument()
     expect(within(metadata).getByText("P1")).toBeInTheDocument()
     const createPlan = screen.getByRole("button", { name: "Create plan" })
-    expect(createPlan).toBeDisabled()
-
-    const createPlanTrigger = screen.getByLabelText(
-      "Create plan unavailable: Planning workflow coming soon."
-    )
-    expect(createPlanTrigger).not.toHaveAttribute("title")
+    expect(createPlan).toBeEnabled()
   })
 
   it("shows a not-found state for a missing work item", async () => {

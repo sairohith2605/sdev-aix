@@ -1,15 +1,16 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeftIcon,
   CalendarDaysIcon,
   ClipboardListIcon,
   Clock3Icon,
   FlagIcon,
+  Loader2Icon,
   UserRoundIcon,
   type LucideIcon,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
-import { Link, useParams } from "react-router"
+import { Link, useNavigate, useParams } from "react-router"
 import remarkGfm from "remark-gfm"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -17,11 +18,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+
+import { createPlan, getPlans } from "@/features/plans/api"
+import type { Plan } from "@/features/plans/model"
 import { getWorkItem } from "@/features/work-items/api"
 import type { WorkItem } from "@/features/work-items/model"
 import { cn } from "@/lib/utils"
@@ -235,6 +234,29 @@ function MarkdownSection({ title, value }: { title: string; value?: string }) {
 }
 
 function WorkItemDetail({ item }: { item: WorkItem }) {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { data: plans } = useQuery({
+    queryKey: ["plans"],
+    queryFn: ({ signal }) => getPlans(signal),
+    staleTime: 60_000,
+  })
+  const existingPlan = plans?.find((plan) => plan.workItemId === item.id)
+  const createPlanMutation = useMutation({
+    mutationFn: (signal?: AbortSignal) =>
+      createPlan({ workItemId: item.id }, signal),
+    onSuccess: (plan) => {
+      queryClient.setQueryData(["plan", plan.id], plan)
+      queryClient.setQueryData<Plan[]>(["plans"], (currentPlans = []) => [
+        plan,
+        ...currentPlans.filter((existing) => existing.workItemId !== item.id),
+      ])
+      void navigate(`/plans/${plan.id}`, {
+        state: { fromWorkItemId: item.id },
+      })
+    },
+  })
+
   return (
     <section className="space-y-8" aria-labelledby="work-item-detail-title">
       <Link
@@ -280,24 +302,38 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
               <MetadataTitle icon={ClipboardListIcon} label="Plan" />
             </CardHeader>
             <CardContent>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span
-                      className="block"
-                      tabIndex={0}
-                      aria-label="Create plan unavailable: Planning workflow coming soon."
-                    />
+              <Button
+                className="w-full"
+                disabled={createPlanMutation.isPending}
+                onClick={() => {
+                  if (existingPlan) {
+                    void navigate(`/plans/${existingPlan.id}`, {
+                      state: { fromWorkItemId: item.id },
+                    })
+                    return
                   }
-                >
-                  <Button className="w-full" disabled>
-                    Create plan
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  Planning workflow coming soon.
-                </TooltipContent>
-              </Tooltip>
+                  createPlanMutation.mutate()
+                }}
+              >
+                {createPlanMutation.isPending ? (
+                  <>
+                    <Loader2Icon
+                      className="size-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                    Creating plan…
+                  </>
+                ) : existingPlan ? (
+                  "Edit plan"
+                ) : (
+                  "Create plan"
+                )}
+              </Button>
+              {createPlanMutation.isError ? (
+                <p className="mt-2 text-xs text-destructive" role="alert">
+                  Could not create the plan. Try again.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
           <DetailCard

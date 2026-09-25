@@ -1,13 +1,17 @@
 import { delay, http, HttpResponse } from "msw"
 
+import { buildMockPlan } from "./plans"
 import { projectAssignees, projectSprints, workItems } from "./work-items"
 import {
   getMockDelay,
+  getMockPlanUrl,
+  getMockPlansUrl,
   getMockWorkItemUrl,
   getMockWorkItemAssigneesUrl,
   getMockWorkItemSprintsUrl,
   getMockWorkItemsUrl,
 } from "@/config/api"
+import type { Plan } from "@/features/plans/model"
 
 const DEFAULT_LIMIT = 10
 const MAX_LIMIT = 100
@@ -53,6 +57,22 @@ function currentSprintWindow() {
   const start = Math.max(currentIndex - CURRENT_SPRINT_WINDOW_BEFORE, 0)
   const end = currentIndex + CURRENT_SPRINT_WINDOW_AFTER + 1
   return projectSprints.slice(start, end)
+}
+
+const plansStore = new Map<string, Plan>()
+
+function getPlansForWorkItem(workItemId: number): Plan[] {
+  return Array.from(plansStore.values()).filter(
+    (plan) => plan.workItemId === workItemId
+  )
+}
+
+export function resetMockPlans(): void {
+  plansStore.clear()
+}
+
+function generateId(): string {
+  return `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function detailMarkdown(item: (typeof workItems)[number]) {
@@ -189,4 +209,81 @@ export const handlers = [
       hasMore,
     })
   }),
+  http.get(getMockPlansUrl(), async () => {
+    await delay(getMockDelay())
+    const plans = Array.from(plansStore.values()).sort(
+      (a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    )
+    return HttpResponse.json(plans)
+  }),
+  http.get(getMockPlanUrl(), async ({ params }) => {
+    await delay(getMockDelay())
+    const plan = plansStore.get(params.planId as string)
+    if (!plan) {
+      return HttpResponse.json(
+        { message: "Plan not found.", code: "PLAN_NOT_FOUND", status: 404 },
+        { status: 404 }
+      )
+    }
+    return HttpResponse.json(plan)
+  }),
+  http.post(getMockPlansUrl(), async ({ request }) => {
+    await delay(getMockDelay())
+    const body = await request.json()
+    const workItemId = Number((body as Record<string, unknown>)?.workItemId)
+    const workItem = workItems.find((item) => item.id === workItemId)
+
+    if (!Number.isInteger(workItemId) || !workItem) {
+      return HttpResponse.json(
+        {
+          message: "Work item not found.",
+          code: "WORK_ITEM_NOT_FOUND",
+          status: 404,
+        },
+        { status: 404 }
+      )
+    }
+
+    const existingPlan = getPlansForWorkItem(workItemId)[0]
+    if (existingPlan) {
+      return HttpResponse.json(existingPlan)
+    }
+
+    const plan: Plan = {
+      ...buildMockPlan(workItem),
+      id: generateId(),
+    }
+    plansStore.set(plan.id, plan)
+    return HttpResponse.json(plan, { status: 201 })
+  }),
+  http.put(getMockPlanUrl(), async ({ params, request }) => {
+    await delay(getMockDelay())
+    const existing = plansStore.get(params.planId as string)
+    if (!existing) {
+      return HttpResponse.json(
+        { message: "Plan not found.", code: "PLAN_NOT_FOUND", status: 404 },
+        { status: 404 }
+      )
+    }
+
+    const body = (await request.json()) as Record<string, unknown>
+    const functionalPlan = Array.isArray(body.functionalPlan)
+      ? (body.functionalPlan as Plan["functionalPlan"])
+      : existing.functionalPlan
+    const technicalPlan = Array.isArray(body.technicalPlan)
+      ? (body.technicalPlan as Plan["technicalPlan"])
+      : existing.technicalPlan
+    const updated: Plan = {
+      ...existing,
+      functionalPlan,
+      technicalPlan,
+      status: "saved",
+      updatedAt: new Date().toISOString(),
+    }
+    plansStore.set(updated.id, updated)
+    return HttpResponse.json(updated)
+  }),
 ]
+
+export { getPlansForWorkItem }

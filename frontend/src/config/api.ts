@@ -11,6 +11,13 @@ import {
   type WorkItemList,
   type WorkItemSprints,
 } from "@/features/work-items/model"
+import {
+  createPlanRequestSchema,
+  planSchema,
+  savePlanRequestSchema,
+  type Plan,
+} from "@/features/plans/model"
+import type { CreatePlanRequest, SavePlanRequest } from "@/features/plans/model"
 
 export const apiErrorSchema = z.object({
   message: z.string(),
@@ -233,4 +240,113 @@ export function getMockWorkItemSprintsUrl(): string {
     `${baseUrl}/work-items/facets/sprints`,
     window.location.origin
   ).toString()
+}
+
+export function getPlansUrl(): URL {
+  const baseUrl = getBaseUrl()
+  return new URL(`${baseUrl}/plans`, window.location.origin)
+}
+
+export function getPlanUrl(planId: string): URL {
+  return new URL(`${getPlansUrl()}/${planId}`, window.location.origin)
+}
+
+export function getMockPlansUrl(): string {
+  return getPlansUrl().toString()
+}
+
+export function getMockPlanUrl(): string {
+  return `${getMockPlansUrl()}/:planId`
+}
+
+export async function fetchPlans(signal?: AbortSignal): Promise<Plan[]> {
+  const response = await fetch(getPlansUrl(), {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return z.array(planSchema).parse(await response.json())
+}
+
+export async function fetchPlan(
+  planId: string,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const response = await fetch(getPlanUrl(planId), {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return planSchema.parse(await response.json())
+}
+
+export async function generatePlan(
+  request: CreatePlanRequest,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const validated = createPlanRequestSchema.parse(request)
+  const response = await fetch(getPlansUrl(), {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(validated),
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return planSchema.parse(await response.json())
+}
+
+export async function savePlan(
+  planId: string,
+  request: SavePlanRequest,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const validated = savePlanRequestSchema.parse(request)
+  const response = await fetch(getPlanUrl(planId), {
+    method: "PUT",
+    signal,
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(validated),
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return planSchema.parse(await response.json())
 }

@@ -27,15 +27,6 @@ function PagePlaceholder({
   )
 }
 
-export function WorkItemsPage() {
-  return (
-    <PagePlaceholder label="Azure DevOps Boards" title="Work items">
-      Browse and choose a story or bug to plan. The interactive work-item
-      browser is coming in the next checkpoint.
-    </PagePlaceholder>
-  )
-}
-
 export function WorkItemDetailPage() {
   const { workItemId } = useParams()
 

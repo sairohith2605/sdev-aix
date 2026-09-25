@@ -7,7 +7,7 @@ import { getPageTitle } from "@/lib/page-title"
 import { cn } from "@/lib/utils"
 
 const navigation = [
-  { label: "Work items", to: "/work-items" },
+  { label: "Work Items", to: "/work-items" },
   { label: "Plans", to: "/plans" },
   { label: "Connections", to: "/connections" },
 ] as const

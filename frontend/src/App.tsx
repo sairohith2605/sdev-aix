@@ -1,13 +1,13 @@
 import { Navigate, Route, Routes } from "react-router"
 
 import { AppShell } from "@/components/app-shell"
+import { WorkItemsPage } from "@/features/work-items/work-items-page"
 import {
   ConnectionsPage,
   NotFoundPage,
   PlanDetailPage,
   PlansPage,
   WorkItemDetailPage,
-  WorkItemsPage,
 } from "@/pages/placeholder-pages"
 
 export function App() {

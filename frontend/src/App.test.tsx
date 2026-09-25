@@ -6,6 +6,7 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, expect, it } from "vitest"
 import { MemoryRouter } from "react-router"
 
@@ -15,11 +16,17 @@ import { ThemeProvider } from "@/components/theme-provider"
 afterEach(cleanup)
 
 function renderAt(path: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <ThemeProvider>
-        <App />
-      </ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <App />
+        </ThemeProvider>
+      </QueryClientProvider>
     </MemoryRouter>
   )
 }
@@ -30,7 +37,7 @@ describe("app routing", () => {
     renderAt("/")
 
     expect(
-      await screen.findByRole("heading", { name: "Work items" })
+      await screen.findByRole("heading", { name: "Work Items" })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: "Skip to content" })
@@ -57,7 +64,7 @@ describe("app routing", () => {
   })
 
   it.each([
-    ["/work-items/123", "Work item 123", "Work item | sdev-aix", "Work items"],
+    ["/work-items/123", "Work item 123", "Work item | sdev-aix", "Work Items"],
     ["/plans/abc", "Plan abc", "Plan | sdev-aix", "Plans"],
     ["/connections", "Connections", "Connections | sdev-aix", "Connections"],
     ["/plans/", "Plans", "Plans | sdev-aix", "Plans"],
@@ -85,7 +92,7 @@ describe("app routing", () => {
     await user.click(screen.getByRole("link", { name: "Back to work items" }))
 
     expect(
-      screen.getByRole("heading", { name: "Work items" })
+      screen.getByRole("heading", { name: "Work Items" })
     ).toBeInTheDocument()
   })
 })

@@ -3,6 +3,7 @@ import { delay, http, HttpResponse } from "msw"
 import { projectAssignees, projectSprints, workItems } from "./work-items"
 import {
   getMockDelay,
+  getMockWorkItemUrl,
   getMockWorkItemAssigneesUrl,
   getMockWorkItemSprintsUrl,
   getMockWorkItemsUrl,
@@ -54,6 +55,32 @@ function currentSprintWindow() {
   return projectSprints.slice(start, end)
 }
 
+function detailMarkdown(item: (typeof workItems)[number]) {
+  const actor = item.assignedTo ?? "the team"
+
+  return {
+    ...item,
+    description: [
+      `## Overview`,
+      "",
+      `${item.summary}`,
+      "",
+      `This work item gives ${actor} enough context to plan, implement, and review the change without leaving the planning flow.`,
+      "",
+      `## Notes`,
+      "",
+      `- Track the work under **${item.sprintName}**.`,
+      "- Keep implementation details linked to `" + item.iterationPath + "`.",
+      `- Preserve a clear rollback or recovery path where the change touches user-facing behavior.`,
+    ].join("\n"),
+    acceptanceCriteria: [
+      `- Given the relevant work item context, the team can review the expected behavior before implementation starts.`,
+      `- When edge cases are identified, they are captured as follow-up planning notes.`,
+      `- Then the resulting plan is clear enough for engineering review and iteration.`,
+    ].join("\n"),
+  }
+}
+
 export const handlers = [
   http.get(getMockWorkItemAssigneesUrl(), async ({ request }) => {
     await delay(getMockDelay())
@@ -90,6 +117,25 @@ export const handlers = [
       : currentSprintWindow()
 
     return HttpResponse.json({ sprints })
+  }),
+  http.get(getMockWorkItemUrl(), async ({ params }) => {
+    await delay(getMockDelay())
+
+    const workItemId = Number(params.workItemId)
+    const item = workItems.find((workItem) => workItem.id === workItemId)
+
+    if (!Number.isInteger(workItemId) || !item) {
+      return HttpResponse.json(
+        {
+          message: "Work item not found.",
+          code: "WORK_ITEM_NOT_FOUND",
+          status: 404,
+        },
+        { status: 404 }
+      )
+    }
+
+    return HttpResponse.json(detailMarkdown(item))
   }),
   http.get(getMockWorkItemsUrl(), async ({ request }) => {
     await delay(getMockDelay())

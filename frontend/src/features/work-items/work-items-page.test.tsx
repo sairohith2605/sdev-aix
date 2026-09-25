@@ -13,7 +13,8 @@ import { MemoryRouter, useLocation } from "react-router"
 
 import { App } from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
-import { getMockWorkItemsUrl } from "@/config/api"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { getMockWorkItemUrl, getMockWorkItemsUrl } from "@/config/api"
 import type { WorkItemList } from "@/features/work-items/model"
 import { server } from "@/mocks/server"
 import { workItems } from "@/mocks/work-items"
@@ -39,8 +40,10 @@ function renderAt(path = "/work-items") {
       <MemoryRouter initialEntries={[path]}>
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
-            <App />
-            <LocationProbe />
+            <TooltipProvider>
+              <App />
+              <LocationProbe />
+            </TooltipProvider>
           </ThemeProvider>
         </QueryClientProvider>
       </MemoryRouter>
@@ -77,9 +80,86 @@ describe("work-item browser", () => {
     )
 
     expect(
-      screen.getByRole("heading", { name: "Work item 1042" })
+      await screen.findByRole("heading", {
+        name: "Let members sign in with single sign-on",
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Planning workflow coming soon.")
+    ).not.toBeInTheDocument()
+
+    await user.hover(
+      screen.getByLabelText(
+        "Create plan unavailable: Planning workflow coming soon."
+      )
+    )
+
+    expect(
+      await screen.findByText("Planning workflow coming soon.")
     ).toBeInTheDocument()
     expect(screen.getByTestId("location")).toHaveTextContent("/work-items/1042")
+  })
+
+  it("loads a work-item detail page directly", async () => {
+    renderAt("/work-items/1042")
+
+    expect(await screen.findByText("#1042")).toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", {
+        name: "Let members sign in with single sign-on",
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByText("Description")).toBeInTheDocument()
+    expect(screen.getByText("Overview")).toBeInTheDocument()
+    expect(screen.getByText("Acceptance Criteria")).toBeInTheDocument()
+    const metadata = screen.getByRole("complementary", {
+      name: "Work item metadata",
+    })
+    expect(within(metadata).getByText("Sprint 24")).toBeInTheDocument()
+    expect(within(metadata).getByText("Avery Chen")).toBeInTheDocument()
+    expect(within(metadata).getByText("P1")).toBeInTheDocument()
+    const createPlan = screen.getByRole("button", { name: "Create plan" })
+    expect(createPlan).toBeDisabled()
+
+    const createPlanTrigger = screen.getByLabelText(
+      "Create plan unavailable: Planning workflow coming soon."
+    )
+    expect(createPlanTrigger).not.toHaveAttribute("title")
+  })
+
+  it("shows a not-found state for a missing work item", async () => {
+    renderAt("/work-items/9999")
+
+    expect(
+      await screen.findByRole("heading", { name: "Work item not found" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Back to work items" })
+    ).toHaveAttribute("href", "/work-items")
+  })
+
+  it("can retry a failed work-item detail request", async () => {
+    server.use(
+      http.get(getMockWorkItemUrl(), () =>
+        HttpResponse.json({ message: "Unavailable" }, { status: 503 })
+      )
+    )
+    const user = userEvent.setup()
+    renderAt("/work-items/1042")
+
+    expect(
+      await screen.findByText("Could not load work item")
+    ).toBeInTheDocument()
+    server.use(
+      http.get(getMockWorkItemUrl(), () => HttpResponse.json(workItems[0]))
+    )
+
+    await user.click(screen.getByRole("button", { name: "Try again" }))
+    expect(
+      await screen.findByRole("heading", {
+        name: "Let members sign in with single sign-on",
+      })
+    ).toBeInTheDocument()
   })
 
   it("paginates through work items with URL cursor state", async () => {

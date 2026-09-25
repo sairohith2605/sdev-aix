@@ -4,6 +4,8 @@ export const workItemSchema = z.object({
   id: z.number().int().positive(),
   title: z.string(),
   summary: z.string(),
+  description: z.string().optional(),
+  acceptanceCriteria: z.string().optional(),
   type: z.enum(["User Story", "Bug"]),
   state: z.enum(["New", "Active", "Resolved", "Closed"]),
   priority: z.number().int().min(1).max(4),

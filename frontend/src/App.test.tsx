@@ -37,7 +37,7 @@ describe("app routing", () => {
     renderAt("/")
 
     expect(
-      await screen.findByRole("heading", { name: "Work items" })
+      await screen.findByRole("heading", { name: "Work Items" })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: "Skip to content" })
@@ -64,7 +64,7 @@ describe("app routing", () => {
   })
 
   it.each([
-    ["/work-items/123", "Work item 123", "Work item | sdev-aix", "Work items"],
+    ["/work-items/123", "Work item 123", "Work item | sdev-aix", "Work Items"],
     ["/plans/abc", "Plan abc", "Plan | sdev-aix", "Plans"],
     ["/connections", "Connections", "Connections | sdev-aix", "Connections"],
     ["/plans/", "Plans", "Plans | sdev-aix", "Plans"],
@@ -92,7 +92,7 @@ describe("app routing", () => {
     await user.click(screen.getByRole("link", { name: "Back to work items" }))
 
     expect(
-      screen.getByRole("heading", { name: "Work items" })
+      screen.getByRole("heading", { name: "Work Items" })
     ).toBeInTheDocument()
   })
 })

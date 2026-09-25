@@ -594,7 +594,7 @@ export function WorkItemsPage() {
           className="text-3xl font-semibold tracking-tight sm:text-4xl"
           id="work-items-title"
         >
-          Work items
+          Work Items
         </h1>
         <p className="max-w-prose text-sm leading-relaxed text-muted-foreground sm:text-base">
           Find a story or bug to turn into a reviewable plan.

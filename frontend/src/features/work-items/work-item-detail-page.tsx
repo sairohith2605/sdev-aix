@@ -1,5 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeftIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  CalendarDaysIcon,
+  ClipboardListIcon,
+  Clock3Icon,
+  FlagIcon,
+  UserRoundIcon,
+  type LucideIcon,
+} from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { Link, useParams } from "react-router"
 import remarkGfm from "remark-gfm"
@@ -117,13 +125,40 @@ function ErrorDetail({
   )
 }
 
-function DetailCard({ label, value }: { label: string; value: string }) {
+function MetadataTitle({
+  icon: Icon,
+  label,
+  className,
+}: {
+  icon: LucideIcon
+  label: string
+  className?: string
+}) {
+  return (
+    <CardTitle className={cn("flex items-center gap-2", className)}>
+      <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
+      {label}
+    </CardTitle>
+  )
+}
+
+function DetailCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon
+  label: string
+  value: string
+}) {
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle className="text-xs font-medium tracking-widest text-muted-foreground uppercase">
-          {label}
-        </CardTitle>
+        <MetadataTitle
+          icon={icon}
+          label={label}
+          className="text-xs font-medium tracking-widest text-muted-foreground uppercase"
+        />
       </CardHeader>
       <CardContent>
         <p className="text-sm font-medium break-words">{value}</p>
@@ -182,11 +217,17 @@ function MarkdownContent({ value }: { value?: string }) {
 
 function MarkdownSection({ title, value }: { title: string; value?: string }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
+    <Card className="bg-gradient-to-br from-card to-muted/25 py-0 shadow-sm">
+      <CardHeader className="border-b border-border/60 py-4">
+        <CardTitle className="flex items-center gap-2.5">
+          <span
+            className="h-4 w-1 rounded-full bg-primary"
+            aria-hidden="true"
+          />
+          {title}
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 py-4">
         <MarkdownContent value={value} />
       </CardContent>
     </Card>
@@ -236,7 +277,7 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
         <aside className="space-y-3" aria-label="Work item metadata">
           <Card>
             <CardHeader>
-              <CardTitle>Plan</CardTitle>
+              <MetadataTitle icon={ClipboardListIcon} label="Plan" />
             </CardHeader>
             <CardContent>
               <Tooltip>
@@ -259,13 +300,23 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
               </Tooltip>
             </CardContent>
           </Card>
-          <DetailCard label="Sprint" value={item.sprintName} />
           <DetailCard
+            icon={CalendarDaysIcon}
+            label="Sprint"
+            value={item.sprintName}
+          />
+          <DetailCard
+            icon={UserRoundIcon}
             label="Assigned to"
             value={metadataValue(item.assignedTo)}
           />
-          <DetailCard label="Priority" value={`P${item.priority}`} />
           <DetailCard
+            icon={FlagIcon}
+            label="Priority"
+            value={`P${item.priority}`}
+          />
+          <DetailCard
+            icon={Clock3Icon}
             label="Updated"
             value={dateFormatter.format(new Date(item.updatedAt))}
           />

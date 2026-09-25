@@ -1,8 +1,14 @@
 import { useEffect, useRef } from "react"
+import { MoonIcon, SunIcon } from "lucide-react"
 import { Link, NavLink, Outlet, useLocation } from "react-router"
 
 import { Button } from "@/components/ui/button"
 import { useTheme } from "@/components/theme-provider"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { getPageTitle } from "@/lib/page-title"
 import { cn } from "@/lib/utils"
 
@@ -14,10 +20,13 @@ const navigation = [
 
 export function AppShell() {
   const { pathname } = useLocation()
-  const { theme, setTheme } = useTheme()
+  const { resolvedTheme, setTheme } = useTheme()
   const mainRef = useRef<HTMLElement>(null)
   const previousPath = useRef<string | null>(null)
   const pageTitle = getPageTitle(pathname)
+  const isDarkTheme = resolvedTheme === "dark"
+  const nextTheme = isDarkTheme ? "light" : "dark"
+  const themeLabel = `Switch to ${nextTheme} theme`
 
   useEffect(() => {
     document.title = `${pageTitle} | sdev-aix`
@@ -70,14 +79,33 @@ export function AppShell() {
               </NavLink>
             ))}
           </nav>
-          <Button
-            className="ml-auto"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            size="sm"
-            variant="outline"
-          >
-            Toggle theme
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label={themeLabel}
+                  className="ml-auto"
+                  onClick={() => setTheme(nextTheme)}
+                  size="icon-lg"
+                  variant="outline"
+                />
+              }
+            >
+              {isDarkTheme ? (
+                <MoonIcon aria-hidden="true" />
+              ) : (
+                <SunIcon aria-hidden="true" />
+              )}
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <span className="flex items-center gap-2">
+                {themeLabel}
+                <kbd className="rounded border border-background/20 bg-background/10 px-1.5 py-0.5 text-[0.625rem] font-medium">
+                  D
+                </kbd>
+              </span>
+            </TooltipContent>
+          </Tooltip>
         </div>
       </header>
       <main

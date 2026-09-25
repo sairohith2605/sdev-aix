@@ -66,6 +66,27 @@ describe("app routing", () => {
     await waitFor(() => expect(screen.getByRole("main")).toHaveFocus())
   })
 
+  it("uses an icon theme toggle with a shortcut hint", async () => {
+    const user = userEvent.setup()
+    renderAt("/work-items")
+
+    const themeToggle = screen.getByRole("button", {
+      name: "Switch to dark theme",
+    })
+    expect(screen.queryByRole("button", { name: "Toggle theme" })).toBeNull()
+
+    await user.hover(themeToggle)
+
+    expect(await screen.findByText("Switch to dark theme")).toBeInTheDocument()
+    expect(screen.getByText("D")).toBeInTheDocument()
+
+    await user.click(themeToggle)
+
+    expect(
+      screen.getByRole("button", { name: "Switch to light theme" })
+    ).toBeInTheDocument()
+  })
+
   it.each([
     ["/plans/abc", "Plan abc", "Plan | sdev-aix", "Plans"],
     ["/connections", "Connections", "Connections | sdev-aix", "Connections"],

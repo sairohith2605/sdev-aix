@@ -6,6 +6,7 @@ import { BrowserRouter } from "react-router"
 import "./index.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
+import { TooltipProvider } from "@/components/ui/tooltip.tsx"
 import { shouldRetry } from "@/config/api"
 
 const queryClient = new QueryClient({
@@ -18,7 +19,9 @@ function renderApp() {
       <BrowserRouter>
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
-            <App />
+            <TooltipProvider>
+              <App />
+            </TooltipProvider>
           </ThemeProvider>
         </QueryClientProvider>
       </BrowserRouter>

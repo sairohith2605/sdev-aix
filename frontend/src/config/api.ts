@@ -3,7 +3,9 @@ import { z, ZodError } from "zod"
 import {
   workItemAssigneesSchema,
   workItemListSchema,
+  workItemSchema,
   workItemSprintsSchema,
+  type WorkItem,
   type WorkItemFilters,
   type WorkItemAssignees,
   type WorkItemList,
@@ -113,6 +115,33 @@ export async function fetchWorkItems(
   return workItemListSchema.parse(await response.json())
 }
 
+export function getWorkItemUrl(workItemId: number | string): URL {
+  const baseUrl = getBaseUrl()
+  return new URL(`${baseUrl}/work-items/${workItemId}`, window.location.origin)
+}
+
+export async function fetchWorkItem(
+  workItemId: number | string,
+  signal?: AbortSignal
+): Promise<WorkItem> {
+  const response = await fetch(getWorkItemUrl(workItemId), {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return workItemSchema.parse(await response.json())
+}
+
 export function getWorkItemAssigneesUrl(search = ""): URL {
   const params = new URLSearchParams()
   if (search.trim()) params.set("q", search.trim())
@@ -184,6 +213,10 @@ export async function fetchWorkItemSprints(
 export function getMockWorkItemsUrl(): string {
   const baseUrl = getBaseUrl()
   return new URL(`${baseUrl}/work-items`, window.location.origin).toString()
+}
+
+export function getMockWorkItemUrl(): string {
+  return `${getMockWorkItemsUrl()}/:workItemId`
 }
 
 export function getMockWorkItemAssigneesUrl(): string {

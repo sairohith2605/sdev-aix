@@ -1,4 +1,5 @@
 import type {
+  WorkItem,
   WorkItemAssignees,
   WorkItemFilters,
   WorkItemList,
@@ -7,6 +8,7 @@ import type {
 import {
   fetchWorkItemAssignees,
   fetchWorkItemSprints,
+  fetchWorkItem,
   fetchWorkItems,
 } from "@/config/api"
 
@@ -15,6 +17,13 @@ export async function getWorkItems(
   signal?: AbortSignal
 ): Promise<WorkItemList> {
   return fetchWorkItems(filters, signal)
+}
+
+export async function getWorkItem(
+  workItemId: number | string,
+  signal?: AbortSignal
+): Promise<WorkItem> {
+  return fetchWorkItem(workItemId, signal)
 }
 
 export async function getWorkItemAssignees(

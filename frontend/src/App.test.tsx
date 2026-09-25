@@ -12,6 +12,7 @@ import { MemoryRouter } from "react-router"
 
 import { App } from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
 afterEach(cleanup)
 
@@ -24,7 +25,9 @@ function renderAt(path: string) {
     <MemoryRouter initialEntries={[path]}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <App />
+          <TooltipProvider>
+            <App />
+          </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>
     </MemoryRouter>
@@ -63,8 +66,28 @@ describe("app routing", () => {
     await waitFor(() => expect(screen.getByRole("main")).toHaveFocus())
   })
 
+  it("uses an icon theme toggle with a shortcut hint", async () => {
+    const user = userEvent.setup()
+    renderAt("/work-items")
+
+    const themeToggle = screen.getByRole("button", {
+      name: "Switch to dark theme",
+    })
+    expect(screen.queryByRole("button", { name: "Toggle theme" })).toBeNull()
+
+    await user.hover(themeToggle)
+
+    expect(await screen.findByText("Switch to dark theme")).toBeInTheDocument()
+    expect(screen.getByText("D")).toBeInTheDocument()
+
+    await user.click(themeToggle)
+
+    expect(
+      screen.getByRole("button", { name: "Switch to light theme" })
+    ).toBeInTheDocument()
+  })
+
   it.each([
-    ["/work-items/123", "Work item 123", "Work item | sdev-aix", "Work Items"],
     ["/plans/abc", "Plan abc", "Plan | sdev-aix", "Plans"],
     ["/connections", "Connections", "Connections | sdev-aix", "Connections"],
     ["/plans/", "Plans", "Plans | sdev-aix", "Plans"],
@@ -77,6 +100,22 @@ describe("app routing", () => {
       within(
         screen.getByRole("navigation", { name: "Primary navigation" })
       ).getByRole("link", { name: activeLink })
+    ).toHaveAttribute("aria-current", "page")
+  })
+
+  it("handles a direct visit to a work item", async () => {
+    renderAt("/work-items/1042")
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Let members sign in with single sign-on",
+      })
+    ).toBeInTheDocument()
+    expect(document.title).toBe("Work item | sdev-aix")
+    expect(
+      within(
+        screen.getByRole("navigation", { name: "Primary navigation" })
+      ).getByRole("link", { name: "Work Items" })
     ).toHaveAttribute("aria-current", "page")
   })
 

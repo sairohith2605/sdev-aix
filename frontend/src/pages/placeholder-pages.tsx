@@ -27,16 +27,6 @@ function PagePlaceholder({
   )
 }
 
-export function WorkItemDetailPage() {
-  const { workItemId } = useParams()
-
-  return (
-    <PagePlaceholder label="Work item" title={`Work item ${workItemId}`}>
-      Review its description and acceptance criteria before starting a plan.
-    </PagePlaceholder>
-  )
-}
-
 export function PlansPage() {
   return (
     <PagePlaceholder label="Planning" title="Plans">

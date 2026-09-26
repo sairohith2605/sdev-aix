@@ -1,6 +1,25 @@
 name: sdev-aix
 
 services:
+  init-key:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.init_compose_key"]
+    volumes:
+      - backend-data:/data
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 20
+    mem_limit: 128m
+    cpus: 0.5
+
   backend:
     build:
       context: ./backend
@@ -8,13 +27,14 @@ services:
     environment:
       APP_ORIGIN: http://localhost:${FRONTEND_PORT:-8080}
       DATABASE_URL: sqlite:////data/sdev-aix.db
-      CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/credential_encryption_key
+      CREDENTIAL_ENCRYPTION_KEY_FILE: /data/credential_encryption_key
       ADO_API_VERSION: ${ADO_API_VERSION:-7.1}
       ADO_REQUEST_TIMEOUT_SECONDS: ${ADO_REQUEST_TIMEOUT_SECONDS:-15}
-    secrets:
-      - credential_encryption_key
     volumes:
       - backend-data:/data
+    depends_on:
+      init-key:
+        condition: service_completed_successfully
     networks:
       - app
     read_only: true
@@ -100,7 +120,3 @@ networks:
 
 volumes:
   backend-data:
-
-secrets:
-  credential_encryption_key:
-    file: ./secrets/credential_encryption_key

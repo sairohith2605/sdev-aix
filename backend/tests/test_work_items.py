@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -172,3 +174,12 @@ async def test_list_queries_team_project_and_maps_filter_facets():
     wiql = wiql_request.content.decode()
     assert "System.TeamProject] = 'Product'" in wiql
     assert "System.Title] CONTAINS 'sign-in'" in wiql
+
+    batch_request = next(
+        request
+        for request in calls
+        if request.url.path.endswith("/_apis/wit/workitemsbatch")
+    )
+    batch_body = json.loads(batch_request.content)
+    assert "fields" in batch_body
+    assert "$expand" not in batch_body

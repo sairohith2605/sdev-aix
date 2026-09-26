@@ -132,9 +132,12 @@ class AzureDevOpsClient:
         payload = await self._request(
             "GET",
             f"/{project}/{team}/_apis/work/teamsettings/iterations",
-            params={"$timeframe": "all"},
         )
-        return [item for item in payload.get("value", []) if isinstance(item, dict)]
+        return [
+            item
+            for item in payload.get("values", payload.get("value", []))
+            if isinstance(item, dict)
+        ]
 
     async def query_work_item_ids(self, project_name: str, query: str) -> list[int]:
         payload = await self._request(
@@ -171,7 +174,6 @@ class AzureDevOpsClient:
                     "Microsoft.VSTS.Common.Priority",
                     "Microsoft.VSTS.Common.AcceptanceCriteria",
                 ],
-                "$expand": "relations",
             },
         )
         return [item for item in payload.get("value", []) if isinstance(item, dict)]

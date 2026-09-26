@@ -82,15 +82,19 @@ def test_work_item_mapping_preserves_ui_schema_and_maps_unknown_state_safely():
 
 @pytest.mark.asyncio
 async def test_team_iterations_return_current_window_or_search_results():
-    requested_paths: list[str] = []
+    requested_urls: list[httpx.URL] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        requested_paths.append(request.url.path)
+        requested_urls.append(request.url)
         if request.url.path.endswith("/iterations"):
+            if "$timeframe" in request.url.params:
+                return httpx.Response(
+                    400, json={"message": "Only Current is supported"}
+                )
             return httpx.Response(
                 200,
                 json={
-                    "value": [
+                    "values": [
                         {
                             "id": "i1",
                             "name": "Sprint 2",
@@ -126,4 +130,20 @@ async def test_team_iterations_return_current_window_or_search_results():
     ]
     assert len(matching["sprints"]) == 1
     assert matching["sprints"][0]["isCurrent"] is False
-    assert all("team-id" in path for path in requested_paths)
+    assert all("team-id" in url.path for url in requested_urls)
+    assert all("$timeframe" not in url.params for url in requested_urls)
+
+
+@pytest.mark.asyncio
+async def test_team_iterations_accept_value_collection():
+    client = AzureDevOpsClient(
+        "example-org",
+        "pat",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"value": [{"name": "Sprint 1"}]})
+        ),
+    )
+
+    assert await client.list_team_iterations("project-id", "team-id") == [
+        {"name": "Sprint 1"}
+    ]

@@ -1,6 +1,9 @@
-# Local Compose secrets
+# Local Compose data
 
-Compose reads the Fernet key from `credential_encryption_key` and mounts it only
-into the backend container. Generate this file before starting the stack; the
-file is ignored by Git. Back it up securely: losing the key makes saved Azure
-DevOps credentials undecryptable.
+The `init-key` Compose service creates the Fernet key automatically in the
+persistent `backend-data` volume before starting the backend. The key is stored
+alongside the SQLite database at `/data/credential_encryption_key`; the init
+service only creates a missing key and refuses to replace an invalid one. Back
+up the whole volume: a database backup without its key cannot decrypt saved
+Azure DevOps credentials. Manual backend runs outside Compose still need
+`CREDENTIAL_ENCRYPTION_KEY` configured separately.

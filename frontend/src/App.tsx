@@ -3,9 +3,10 @@ import { Navigate, Route, Routes } from "react-router"
 import { AppShell } from "@/components/app-shell"
 import { PlanDetailPage } from "@/features/plans/plan-detail-page"
 import { PlansPage } from "@/features/plans/plans-page"
+import { ConnectionsPage } from "@/features/connections/connections-page"
 import { WorkItemDetailPage } from "@/features/work-items/work-item-detail-page"
 import { WorkItemsPage } from "@/features/work-items/work-items-page"
-import { ConnectionsPage, NotFoundPage } from "@/pages/placeholder-pages"
+import { NotFoundPage } from "@/pages/placeholder-pages"
 
 export function App() {
   return (

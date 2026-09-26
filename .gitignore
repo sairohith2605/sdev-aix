@@ -2,6 +2,7 @@
 .env
 .env.*
 *.env.local
+secrets/credential_encryption_key
 
 # Local tool and OS files
 .DS_Store

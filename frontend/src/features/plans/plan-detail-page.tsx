@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, ArrowUpRightIcon, SaveIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  ArrowUpRightIcon,
+  DownloadIcon,
+  SaveIcon,
+} from "lucide-react"
+import { useState } from "react"
 import { Link, useLocation, useNavigate, useParams } from "react-router"
 
 import { Badge } from "@/components/ui/badge"
@@ -8,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { getPlan, updatePlan } from "@/features/plans/api"
+import { exportPlanZip } from "@/features/plans/export"
 import { deletePlan, savePlan } from "@/features/plans/repository"
 import { cn } from "@/lib/utils"
 
@@ -37,6 +44,8 @@ export function PlanDetailPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const fromWorkItemId = (location.state as { fromWorkItemId?: number } | null)
     ?.fromWorkItemId
   const backTo =
@@ -83,6 +92,20 @@ export function PlanDetailPage() {
       void navigate("/plans")
     },
   })
+
+  const handleExport = async () => {
+    if (!plan) return
+
+    setIsExporting(true)
+    setExportError(null)
+    try {
+      await exportPlanZip(plan)
+    } catch {
+      setExportError("Could not export the plan. Try again.")
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   if (isPending) {
     return (
@@ -157,6 +180,15 @@ export function PlanDetailPage() {
             Delete
           </Button>
           <Button
+            disabled={isExporting}
+            onClick={() => void handleExport()}
+            size="sm"
+            variant="outline"
+          >
+            <DownloadIcon aria-hidden="true" />
+            {isExporting ? "Exporting…" : "Export"}
+          </Button>
+          <Button
             disabled={saveMutation.isPending}
             onClick={() => saveMutation.mutate(plan)}
             size="sm"
@@ -166,6 +198,12 @@ export function PlanDetailPage() {
           </Button>
         </div>
       </div>
+
+      {exportError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {exportError}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

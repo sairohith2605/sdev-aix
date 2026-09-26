@@ -1,8 +1,11 @@
 import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { saveAs } from "file-saver"
+import JSZip from "jszip"
 import { http, HttpResponse } from "msw"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router"
 
 import { App } from "@/App"
@@ -13,7 +16,15 @@ import { resetMockPlans } from "@/mocks/handlers"
 import { server } from "@/mocks/server"
 import { workItems } from "@/mocks/work-items"
 
-afterEach(cleanup)
+vi.mock("file-saver", () => ({
+  saveAs: vi.fn(),
+}))
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  vi.clearAllMocks()
+})
 beforeEach(resetMockPlans)
 
 function renderAt(path = "/plans") {
@@ -181,6 +192,47 @@ describe("plans", () => {
     await user.click(screen.getByRole("button", { name: "Save" }))
 
     await screen.findByText("saved", undefined, { timeout: 5000 })
+  })
+
+  it("exports the currently edited plan without requiring save", async () => {
+    const user = userEvent.setup()
+    const plan = {
+      id: "plan-export",
+      workItemId: workItems[0].id,
+      workItem: workItems[0],
+      functionalPlan: [
+        { id: "overview", title: "Overview", content: "Original overview" },
+      ],
+      technicalPlan: [],
+      status: "draft",
+      createdAt: "2026-09-25T10:00:00Z",
+      updatedAt: "2026-09-25T10:00:00Z",
+    }
+    server.use(http.get(getMockPlanUrl(), () => HttpResponse.json(plan)))
+
+    let exportedBlob: Blob | undefined
+    vi.mocked(saveAs).mockImplementation((blob) => {
+      if (blob instanceof Blob) exportedBlob = blob
+    })
+
+    renderAt("/plans/plan-export")
+
+    const textarea = await screen.findByLabelText("Overview")
+    await user.clear(textarea)
+    await user.type(textarea, "Unsaved overview")
+    await user.click(screen.getByRole("button", { name: "Export" }))
+
+    await waitFor(() => {
+      expect(saveAs).toHaveBeenCalledWith(expect.any(Blob), "1042.zip")
+    })
+
+    expect(exportedBlob).toBeInstanceOf(Blob)
+    if (!exportedBlob) throw new Error("Export did not create a ZIP blob")
+    const archive = await JSZip.loadAsync(await exportedBlob.arrayBuffer())
+    const functionalPlan = await archive
+      .file("functional-plan.md")!
+      .async("string")
+    expect(functionalPlan).toContain("Unsaved overview")
   })
 
   it("shows not-found for a missing plan", async () => {

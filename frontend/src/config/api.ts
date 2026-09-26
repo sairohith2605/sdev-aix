@@ -14,10 +14,17 @@ import {
 import {
   createPlanRequestSchema,
   planSchema,
-  savePlanRequestSchema,
+  persistPlanRequestSchema,
+  requestPlanRevisionRequestSchema,
+  submitClarificationAnswersRequestSchema,
   type Plan,
 } from "@/features/plans/model"
-import type { CreatePlanRequest, SavePlanRequest } from "@/features/plans/model"
+import type {
+  CreatePlanRequest,
+  RequestPlanRevisionRequest,
+  PersistPlanRequest,
+  SubmitClarificationAnswersRequest,
+} from "@/features/plans/model"
 
 export const apiErrorSchema = z.object({
   message: z.string(),
@@ -327,10 +334,10 @@ export async function generatePlan(
 
 export async function savePlan(
   planId: string,
-  request: SavePlanRequest,
+  request: PersistPlanRequest,
   signal?: AbortSignal
 ): Promise<Plan> {
-  const validated = savePlanRequestSchema.parse(request)
+  const validated = persistPlanRequestSchema.parse(request)
   const response = await fetch(getPlanUrl(planId), {
     method: "PUT",
     signal,
@@ -349,6 +356,80 @@ export async function savePlan(
   }
 
   return planSchema.parse(await response.json())
+}
+
+async function postPlanAction(
+  planId: string,
+  action: string,
+  body?: unknown,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const response = await fetch(
+    new URL(
+      `${getPlanUrl(planId).toString()}/${action}`,
+      window.location.origin
+    ),
+    {
+      method: "POST",
+      signal,
+      headers: {
+        Accept: "application/json",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }
+  )
+
+  if (!response.ok) {
+    let errorBody: unknown
+    try {
+      errorBody = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, errorBody)
+  }
+
+  return planSchema.parse(await response.json())
+}
+
+export async function submitPlanClarifications(
+  planId: string,
+  request: SubmitClarificationAnswersRequest,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const validated = submitClarificationAnswersRequestSchema.parse(request)
+  return postPlanAction(planId, "clarifications", validated, signal)
+}
+
+export async function generatePlanDraft(
+  planId: string,
+  signal?: AbortSignal
+): Promise<Plan> {
+  return postPlanAction(planId, "draft", undefined, signal)
+}
+
+export async function requestPlanRevision(
+  planId: string,
+  request: RequestPlanRevisionRequest,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const validated = requestPlanRevisionRequestSchema.parse(request)
+  return postPlanAction(planId, "revisions", validated, signal)
+}
+
+export async function finalizePlan(
+  planId: string,
+  signal?: AbortSignal
+): Promise<Plan> {
+  return postPlanAction(planId, "finalize", undefined, signal)
+}
+
+export async function reopenPlan(
+  planId: string,
+  signal?: AbortSignal
+): Promise<Plan> {
+  return postPlanAction(planId, "reopen", undefined, signal)
 }
 
 export async function deletePlanRequest(

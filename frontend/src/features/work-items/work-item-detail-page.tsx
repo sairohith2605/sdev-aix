@@ -247,10 +247,16 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
       createPlan({ workItemId: item.id }, signal),
     onSuccess: (plan) => {
       queryClient.setQueryData(["plan", plan.id], plan)
-      queryClient.setQueryData<Plan[]>(["plans"], (currentPlans = []) => [
-        plan,
-        ...currentPlans.filter((existing) => existing.workItemId !== item.id),
-      ])
+      const currentPlans = queryClient.getQueryData<Plan[]>(["plans"])
+      queryClient.setQueryData<Plan[]>(
+        ["plans"],
+        [
+          plan,
+          ...(currentPlans ?? []).filter(
+            (existing) => existing.workItemId !== item.id
+          ),
+        ]
+      )
       void navigate(`/plans/${plan.id}`, {
         state: { fromWorkItemId: item.id },
       })

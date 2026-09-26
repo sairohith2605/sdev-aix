@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { saveAs } from "file-saver"
@@ -13,6 +13,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { getMockPlansUrl, getMockPlanUrl } from "@/config/api"
+import { createPlan, submitClarifications } from "@/features/plans/api"
 import { resetMockPlans } from "@/mocks/handlers"
 import { server } from "@/mocks/server"
 import { workItems } from "@/mocks/work-items"
@@ -47,7 +48,62 @@ function renderAt(path = "/plans") {
   )
 }
 
+async function createProvisionalPlan(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Create plan" }))
+  await screen.findByRole("heading", {
+    name: "Let members sign in with single sign-on",
+  })
+  await screen.findByRole("heading", { name: "Clarify Work" })
+  await user.type(
+    screen.getByLabelText(
+      "What user or business outcome should this change achieve?"
+    ),
+    "Help employees sign in securely with the company identity provider."
+  )
+  await user.type(
+    screen.getByLabelText(
+      "Are there important edge cases or constraints to account for?"
+    ),
+    "Users need a recovery path if the identity provider is unavailable."
+  )
+  await user.click(screen.getByRole("button", { name: "Submit answers" }))
+  const secondRoundQuestion = await screen.findByLabelText(
+    "Should the plan treat the unanswered details as assumptions or leave them as open questions?"
+  )
+  await user.type(
+    secondRoundQuestion,
+    "Document uncertain details as assumptions."
+  )
+  await user.click(screen.getByRole("button", { name: "Submit answers" }))
+  await user.click(
+    await screen.findByRole("button", { name: "Generate draft" })
+  )
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  await screen.findByText("Functional Plan")
+}
+
 describe("plans", () => {
+  it("accepts clarification answers and returns a deterministic follow-up", async () => {
+    const plan = await createPlan({ workItemId: 1042 })
+    const updated = await submitClarifications(plan.id, {
+      roundId: "round-1",
+      answers: [
+        {
+          questionId: "primary-outcome",
+          value: "Secure sign-in",
+          unknown: false,
+        },
+        { questionId: "edge-cases", value: "", unknown: true },
+      ],
+    })
+
+    expect(updated.status).toBe("clarifying")
+    expect(updated.clarificationRounds).toHaveLength(2)
+    expect(updated.clarificationRounds[1].questions[0]?.id).toBe(
+      "unknown-priority"
+    )
+  })
+
   it("shows an empty state when no plans exist", async () => {
     renderAt("/plans")
 
@@ -65,8 +121,14 @@ describe("plans", () => {
 
     await user.click(await screen.findByRole("button", { name: "Create plan" }))
 
-    expect(await screen.findByText("Functional plan")).toBeInTheDocument()
-    expect(screen.getByText("Technical plan")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("heading", {
+        name: "Let members sign in with single sign-on",
+      })
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole("heading", { name: "Clarify Work" })
+    ).toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: "Back to work item" })
     ).toHaveAttribute("href", "/work-items/1042")
@@ -78,6 +140,194 @@ describe("plans", () => {
     ).toHaveAttribute("href", "/work-items/1042")
   })
 
+  it("runs clarification follow-up, provisional revision, finalization, and reopen", async () => {
+    const user = userEvent.setup()
+    renderAt("/work-items/1042")
+
+    await user.click(await screen.findByRole("button", { name: "Create plan" }))
+    await screen.findByRole("heading", { name: "Clarify Work" })
+    await user.type(
+      screen.getByLabelText(
+        "What user or business outcome should this change achieve?"
+      ),
+      "Improve secure sign-in."
+    )
+    await user.type(
+      screen.getByLabelText(
+        "Are there important edge cases or constraints to account for?"
+      ),
+      "Provide recovery when the identity provider is unavailable."
+    )
+    await user.click(screen.getByRole("button", { name: "Submit answers" }))
+
+    expect(
+      await screen.findByLabelText(
+        "Should the plan treat the unanswered details as assumptions or leave them as open questions?"
+      )
+    ).toBeInTheDocument()
+    await user.type(
+      screen.getByLabelText(
+        "Should the plan treat the unanswered details as assumptions or leave them as open questions?"
+      ),
+      "Record an explicit assumption and flag it for product review."
+    )
+    await user.click(screen.getByRole("button", { name: "Submit answers" }))
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    await user.click(
+      await screen.findByRole("button", { name: "Generate draft" })
+    )
+
+    expect(
+      await screen.findByRole("button", { name: "Finalize Plan" })
+    ).toBeInTheDocument()
+    const overview = screen.getByLabelText("Overview")
+    await user.clear(overview)
+    await user.type(overview, "Edited overview")
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    await screen.findByText("Changes saved")
+
+    await user.type(
+      screen.getByLabelText("What Should Change?"),
+      "Add explicit audit logging and failure recovery details."
+    )
+    await user.click(screen.getByRole("button", { name: "Request Revision" }))
+    expect(await screen.findByText("Provisional · r2")).toBeInTheDocument()
+    expect(screen.getByLabelText("Overview")).toHaveDisplayValue(/Revision 2/)
+
+    await user.click(screen.getByRole("button", { name: "Finalize Plan" }))
+    expect(
+      await screen.findByRole("alert").then((alert) => alert.textContent)
+    ).toContain("Finalized Plan")
+    expect(screen.getByLabelText("Overview")).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: "Save" })
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole("button", { name: "Reopen for Revision" })
+    )
+    expect(await screen.findByText("Provisional · r2")).toBeInTheDocument()
+    expect(screen.getByLabelText("Overview")).toBeEnabled()
+  })
+
+  it("stacks review actions before a scrollable conversation history", async () => {
+    const plan = {
+      id: "plan-review-layout",
+      workItemId: workItems[0].id,
+      workItem: workItems[0],
+      status: "review",
+      clarificationRounds: [],
+      conversation: [
+        {
+          id: "agent-1",
+          role: "agent",
+          content: "Review the draft.",
+          createdAt: "2026-09-25T10:00:00Z",
+        },
+      ],
+      functionalPlan: [
+        { id: "overview", title: "Overview", content: "Functional content" },
+      ],
+      technicalPlan: [
+        { id: "design", title: "Design", content: "Technical content" },
+      ],
+      revision: 1,
+      revisionHistory: [],
+      createdAt: "2026-09-25T10:00:00Z",
+      updatedAt: "2026-09-25T10:00:00Z",
+      finalizedAt: null,
+    }
+    server.use(http.get(getMockPlanUrl(), () => HttpResponse.json(plan)))
+
+    renderAt("/plans/plan-review-layout")
+
+    await screen.findByText("Functional content")
+    const actionAside = screen.getByRole("complementary", {
+      name: "Plan Actions and Conversation",
+    })
+    const actionHeadings = Array.from(
+      actionAside.querySelectorAll('[data-slot="card-title"]')
+    ).map((heading) => heading.textContent)
+    expect(actionHeadings).toEqual([
+      "Approve Plan",
+      "Request Revision",
+      "Conversation History",
+    ])
+
+    const conversationRegion = within(actionAside).getByRole("region", {
+      name: "Conversation Messages",
+    })
+    expect(conversationRegion).toHaveAttribute("tabindex", "0")
+    expect(conversationRegion.className).toContain("max-h-96")
+    expect(conversationRegion.className).toContain("overflow-y-auto")
+    expect(
+      within(conversationRegion).getByText("Review the draft.")
+    ).toBeInTheDocument()
+    expect(conversationRegion.querySelector('[data-slot="card"]')).toBeNull()
+    expect(conversationRegion.className).toContain("divide-y")
+  })
+
+  it("requires every clarification answer or an explicit unknown choice", async () => {
+    const user = userEvent.setup()
+    renderAt("/work-items/1042")
+
+    await user.click(await screen.findByRole("button", { name: "Create plan" }))
+    await screen.findByRole("heading", { name: "Clarify Work" })
+    await user.click(screen.getByRole("button", { name: "Submit answers" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Answer each question or mark “I don’t know”."
+    )
+    expect(
+      screen.queryByRole("button", { name: "Generate draft" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("prevents editing a finalized plan and reopens through the workflow endpoint", async () => {
+    const plan = {
+      id: "plan-finalized-readonly",
+      workItemId: workItems[0].id,
+      workItem: workItems[0],
+      functionalPlan: [
+        { id: "overview", title: "Overview", content: "Approved overview" },
+      ],
+      technicalPlan: [],
+      status: "finalized",
+      clarificationRounds: [],
+      conversation: [],
+      revision: 1,
+      revisionHistory: [],
+      createdAt: "2026-09-25T10:00:00Z",
+      updatedAt: "2026-09-25T10:00:00Z",
+      finalizedAt: "2026-09-25T10:00:00Z",
+    }
+    server.use(
+      http.get(getMockPlanUrl(), () => HttpResponse.json(plan)),
+      http.post(`${getMockPlanUrl()}/reopen`, () =>
+        HttpResponse.json({
+          ...plan,
+          status: "review",
+          finalizedAt: null,
+          revisionHistory: [],
+        })
+      )
+    )
+    const user = userEvent.setup()
+    renderAt("/plans/plan-finalized-readonly")
+
+    const overview = await screen.findByLabelText("Overview")
+    expect(overview).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: "Save" })
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole("button", { name: "Reopen for Revision" })
+    )
+    expect(await screen.findByText("Provisional · r1")).toBeInTheDocument()
+    expect(screen.getByLabelText("Overview")).toBeEnabled()
+  })
+
   it("shows Edit plan and reuses an existing plan for its work item", async () => {
     const plan = {
       id: "plan-existing",
@@ -87,7 +337,12 @@ describe("plans", () => {
         { id: "overview", title: "Overview", content: "Existing overview" },
       ],
       technicalPlan: [],
-      status: "draft",
+      status: "review",
+      clarificationRounds: [],
+      conversation: [],
+      revision: 1,
+      revisionHistory: [],
+      finalizedAt: null,
       createdAt: "2026-09-25T10:00:00Z",
       updatedAt: "2026-09-25T10:00:00Z",
     }
@@ -115,9 +370,14 @@ describe("plans", () => {
             id: "plan-1",
             workItemId: workItems[0].id,
             workItem: workItems[0],
+            clarificationRounds: [],
+            conversation: [],
             functionalPlan: [],
             technicalPlan: [],
-            status: "saved",
+            status: "finalized",
+            revision: 1,
+            revisionHistory: [],
+            finalizedAt: "2026-09-25T10:00:00Z",
             createdAt: "2026-09-25T10:00:00Z",
             updatedAt: "2026-09-25T10:00:00Z",
           },
@@ -131,7 +391,7 @@ describe("plans", () => {
       await screen.findByText("Let members sign in with single sign-on")
     ).toBeInTheDocument()
     expect(screen.getByText("Work item #1042")).toBeInTheDocument()
-    expect(screen.getByText("saved")).toBeInTheDocument()
+    expect(screen.getByText("Finalized")).toBeInTheDocument()
   })
 
   it("loads a plan directly and saves edits", { timeout: 10000 }, async () => {
@@ -144,7 +404,12 @@ describe("plans", () => {
         { id: "overview", title: "Overview", content: "Original overview" },
       ],
       technicalPlan: [],
-      status: "draft",
+      status: "review",
+      clarificationRounds: [],
+      conversation: [],
+      revision: 1,
+      revisionHistory: [],
+      finalizedAt: null,
       createdAt: "2026-09-25T10:00:00Z",
       updatedAt: "2026-09-25T10:00:00Z",
     }
@@ -157,7 +422,7 @@ describe("plans", () => {
           ...plan,
           functionalPlan: body.functionalPlan ?? plan.functionalPlan,
           technicalPlan: body.technicalPlan ?? plan.technicalPlan,
-          status: "saved",
+          status: "review",
           updatedAt: new Date().toISOString(),
         })
       })
@@ -193,7 +458,7 @@ describe("plans", () => {
 
     await user.click(screen.getByRole("button", { name: "Save" }))
 
-    await screen.findByText("saved", undefined, { timeout: 5000 })
+    expect(await screen.findByText("Changes saved")).toBeInTheDocument()
   })
 
   it("keeps the plan when delete confirmation is cancelled", async () => {
@@ -203,7 +468,12 @@ describe("plans", () => {
       workItem: workItems[0],
       functionalPlan: [],
       technicalPlan: [],
-      status: "draft",
+      status: "review",
+      clarificationRounds: [],
+      conversation: [],
+      revision: 1,
+      revisionHistory: [],
+      finalizedAt: null,
       createdAt: "2026-09-25T10:00:00Z",
       updatedAt: "2026-09-25T10:00:00Z",
     }
@@ -230,8 +500,7 @@ describe("plans", () => {
     const user = userEvent.setup()
     renderAt("/work-items/1042")
 
-    await user.click(await screen.findByRole("button", { name: "Create plan" }))
-    expect(await screen.findByText("Functional plan")).toBeInTheDocument()
+    await createProvisionalPlan(user)
 
     await user.click(screen.getByRole("button", { name: "Delete" }))
     await user.click(screen.getByRole("button", { name: "Delete plan" }))
@@ -263,7 +532,12 @@ describe("plans", () => {
       workItem: workItems[0],
       functionalPlan: [],
       technicalPlan: [],
-      status: "draft",
+      status: "review",
+      clarificationRounds: [],
+      conversation: [],
+      revision: 1,
+      revisionHistory: [],
+      finalizedAt: null,
       createdAt: "2026-09-25T10:00:00Z",
       updatedAt: "2026-09-25T10:00:00Z",
     }
@@ -296,7 +570,12 @@ describe("plans", () => {
         { id: "overview", title: "Overview", content: "Original overview" },
       ],
       technicalPlan: [],
-      status: "draft",
+      status: "review",
+      clarificationRounds: [],
+      conversation: [],
+      revision: 1,
+      revisionHistory: [],
+      finalizedAt: null,
       createdAt: "2026-09-25T10:00:00Z",
       updatedAt: "2026-09-25T10:00:00Z",
     }

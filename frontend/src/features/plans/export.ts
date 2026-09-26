@@ -12,12 +12,21 @@ function renderSections(sections: PlanSection[]): string {
 function renderPlanMarkdown(
   title: string,
   plan: PlanSection[],
-  workItem: Plan["workItem"]
+  workItem: Plan["workItem"],
+  status: Plan["status"],
+  revision: number
 ) {
+  const statusLabel =
+    status === "finalized"
+      ? "Finalized"
+      : status === "review"
+        ? `Provisional draft (revision ${revision})`
+        : "Clarification in progress"
   return [
     `# ${title}`,
     "",
     `**Work item:** #${workItem.id} — ${workItem.title}`,
+    `**Status:** ${statusLabel}`,
     "",
     renderSections(plan),
     "",
@@ -28,11 +37,23 @@ export async function createPlanZip(plan: Plan): Promise<Blob> {
   const archive = new JSZip()
   archive.file(
     "functional-plan.md",
-    renderPlanMarkdown("Functional Plan", plan.functionalPlan, plan.workItem)
+    renderPlanMarkdown(
+      "Functional Plan",
+      plan.functionalPlan,
+      plan.workItem,
+      plan.status,
+      plan.revision
+    )
   )
   archive.file(
     "technical-plan.md",
-    renderPlanMarkdown("Technical Plan", plan.technicalPlan, plan.workItem)
+    renderPlanMarkdown(
+      "Technical Plan",
+      plan.technicalPlan,
+      plan.workItem,
+      plan.status,
+      plan.revision
+    )
   )
 
   return archive.generateAsync({ type: "blob", compression: "DEFLATE" })

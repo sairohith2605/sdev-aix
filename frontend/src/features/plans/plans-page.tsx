@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getPlans } from "@/features/plans/api"
+import type { Plan } from "@/features/plans/model"
 import { cn } from "@/lib/utils"
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -15,7 +16,11 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   timeZone: "UTC",
 })
 
-import type { Plan } from "@/features/plans/model"
+function statusLabel(plan: Plan): string {
+  if (plan.status === "clarifying") return "Clarifying"
+  if (plan.status === "finalized") return "Finalized"
+  return `Provisional · r${plan.revision}`
+}
 
 function PlanCard({ plan }: { plan: Plan }) {
   return (
@@ -30,7 +35,11 @@ function PlanCard({ plan }: { plan: Plan }) {
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-2 text-base">
             <span className="truncate">{plan.workItem.title}</span>
-            <Badge variant="secondary">{plan.status}</Badge>
+            <Badge
+              variant={plan.status === "finalized" ? "default" : "secondary"}
+            >
+              {statusLabel(plan)}
+            </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">

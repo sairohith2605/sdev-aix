@@ -25,9 +25,14 @@ const plan: Plan = {
   technicalPlan: [
     { id: "design", title: "Design", content: "Visible technical edit" },
   ],
-  status: "draft",
+  status: "review",
+  clarificationRounds: [],
+  conversation: [],
+  revision: 1,
+  revisionHistory: [],
   createdAt: "2026-09-25T10:00:00Z",
   updatedAt: "2026-09-25T10:00:00Z",
+  finalizedAt: null,
 }
 
 describe("plan ZIP export", () => {

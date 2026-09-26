@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import process from "node:process"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import type { Plugin } from "vite"
@@ -20,6 +21,14 @@ function excludeMockServiceWorker(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), excludeMockServiceWorker()],
+  server: {
+    proxy: {
+      "/api": {
+        target: process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

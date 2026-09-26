@@ -97,7 +97,9 @@ describe("work-item browser", () => {
       })
     ).toBeInTheDocument()
     expect(screen.getByText("Description")).toBeInTheDocument()
-    expect(screen.getByText("Overview")).toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Overview" })
+    ).toBeInTheDocument()
     expect(screen.getByText("Acceptance Criteria")).toBeInTheDocument()
     const metadata = screen.getByRole("complementary", {
       name: "Work item metadata",
@@ -107,6 +109,41 @@ describe("work-item browser", () => {
     expect(within(metadata).getByText("P1")).toBeInTheDocument()
     const createPlan = screen.getByRole("button", { name: "Create plan" })
     expect(createPlan).toBeEnabled()
+  })
+
+  it("renders ADO HTML in descriptions and acceptance criteria without unsafe markup", async () => {
+    server.use(
+      http.get(getMockWorkItemUrl(), () =>
+        HttpResponse.json({
+          ...workItems[0],
+          description:
+            '<div><p class="ml-5"><strong>Edit employee</strong><br><span>Update the details.</span></p><script>window.unsafe = true</script></div>',
+          acceptanceCriteria:
+            '<ul class="ml-5 list-inside"><li>Changes are saved.</li><li>Long item text wraps across lines without shifting under the marker.</li></ul><a href="javascript:alert(1)" onclick="alert(1)">Unsafe link</a><a href="https://example.com/help">Help</a>',
+        })
+      )
+    )
+    renderAt("/work-items/1042")
+
+    expect(await screen.findByText("Edit employee")).toBeInTheDocument()
+    expect(screen.getByText("Edit employee").tagName).toBe("STRONG")
+    expect(screen.getByText("Edit employee").closest("p")).toHaveClass("my-2")
+    expect(screen.getByText("Update the details.")).toBeInTheDocument()
+    expect(screen.getByText("Changes are saved.").closest("li")).not.toBeNull()
+    expect(screen.getByText("Changes are saved.").closest("ul")).toHaveClass(
+      "list-inside",
+      "pl-0"
+    )
+    expect(
+      screen.getByText("Changes are saved.").closest("ul")
+    ).not.toHaveClass("ml-5")
+    expect(screen.queryByText("window.unsafe = true")).not.toBeInTheDocument()
+    expect(screen.getByText("Unsafe link")).not.toHaveAttribute("href")
+    expect(screen.getByText("Unsafe link")).not.toHaveAttribute("onclick")
+    expect(screen.getByRole("link", { name: "Help" })).toHaveAttribute(
+      "href",
+      "https://example.com/help"
+    )
   })
 
   it("shows a not-found state for a missing work item", async () => {

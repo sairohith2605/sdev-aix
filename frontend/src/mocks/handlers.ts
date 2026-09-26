@@ -111,6 +111,84 @@ function detailMarkdown(item: (typeof workItems)[number]) {
 }
 
 export const handlers = [
+  http.get("/api/connections/azure-devops", async () => {
+    await delay(getMockDelay())
+    return HttpResponse.json({ connected: false })
+  }),
+  http.post("/api/connections/azure-devops/test", async ({ request }) => {
+    await delay(getMockDelay())
+    const body = (await request.json()) as Record<string, unknown>
+    if (
+      typeof body.organization !== "string" ||
+      !body.organization.trim() ||
+      typeof body.pat !== "string" ||
+      !body.pat.trim()
+    ) {
+      return HttpResponse.json(
+        { message: "Organization and PAT are required.", status: 422 },
+        { status: 422 }
+      )
+    }
+    return HttpResponse.json({
+      connected: true,
+      organization: body.organization,
+    })
+  }),
+  http.post("/api/connections/azure-devops/projects", async () => {
+    await delay(getMockDelay())
+    return HttpResponse.json([
+      { id: "demo-project", name: "Demo Project" },
+      { id: "platform-project", name: "Platform" },
+    ])
+  }),
+  http.post("/api/connections/azure-devops/teams", async ({ request }) => {
+    await delay(getMockDelay())
+    const body = (await request.json()) as Record<string, unknown>
+    const projectId = body.project_id
+    if (typeof projectId !== "string" || !projectId) {
+      return HttpResponse.json(
+        { message: "Select a project first.", status: 422 },
+        { status: 422 }
+      )
+    }
+    return HttpResponse.json([
+      { id: `${projectId}-team`, name: "Client Team" },
+      { id: `${projectId}-ops`, name: "Operations" },
+    ])
+  }),
+  http.put("/api/connections/azure-devops", async ({ request }) => {
+    await delay(getMockDelay())
+    const body = (await request.json()) as Record<string, unknown>
+    if (
+      typeof body.organization !== "string" ||
+      typeof body.project_id !== "string" ||
+      typeof body.project_name !== "string" ||
+      typeof body.team_id !== "string" ||
+      typeof body.team_name !== "string" ||
+      typeof body.pat !== "string"
+    ) {
+      return HttpResponse.json(
+        {
+          message: "Complete all Azure DevOps connection fields.",
+          status: 422,
+        },
+        { status: 422 }
+      )
+    }
+    return HttpResponse.json({
+      connected: true,
+      organization: body.organization,
+      project_id: body.project_id,
+      project_name: body.project_name,
+      team_id: body.team_id,
+      team_name: body.team_name,
+      pat_configured: true,
+    })
+  }),
+  http.delete("/api/connections/azure-devops", async () => {
+    await delay(getMockDelay())
+    return HttpResponse.json({ connected: false })
+  }),
   http.get(getMockWorkItemAssigneesUrl(), async ({ request }) => {
     await delay(getMockDelay())
 
@@ -146,6 +224,12 @@ export const handlers = [
       : currentSprintWindow()
 
     return HttpResponse.json({ sprints })
+  }),
+  http.get("/api/work-items/facets/states", async () => {
+    await delay(getMockDelay())
+    return HttpResponse.json({
+      states: ["new", "active", "resolved", "closed"],
+    })
   }),
   http.get(getMockWorkItemUrl(), async ({ params }) => {
     await delay(getMockDelay())
@@ -188,8 +272,10 @@ export const handlers = [
       const matchesType =
         !type ||
         (type === "story" && item.type === "User Story") ||
-        (type === "bug" && item.type === "Bug")
-      const matchesState = !state || item.state.toLowerCase() === state
+        (type === "bug" && item.type === "Bug") ||
+        (type === "other" && item.type !== "User Story" && item.type !== "Bug")
+      const matchesState =
+        !state || item.state.toLowerCase() === state.toLowerCase()
       const matchesAssignee =
         !assignee ||
         (assignee === "unassigned" && !item.assignedToId) ||

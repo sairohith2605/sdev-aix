@@ -4,10 +4,12 @@ import type {
   WorkItemFilters,
   WorkItemList,
   WorkItemSprints,
+  WorkItemStates,
 } from "./model"
 import {
   fetchWorkItemAssignees,
   fetchWorkItemSprints,
+  fetchWorkItemStates,
   fetchWorkItem,
   fetchWorkItems,
 } from "@/config/api"
@@ -38,4 +40,10 @@ export async function getWorkItemSprints(
   signal?: AbortSignal
 ): Promise<WorkItemSprints> {
   return fetchWorkItemSprints(search, signal)
+}
+
+export async function getWorkItemStates(
+  signal?: AbortSignal
+): Promise<WorkItemStates> {
+  return fetchWorkItemStates(signal)
 }

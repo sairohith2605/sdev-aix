@@ -29,6 +29,7 @@ import {
 import {
   getWorkItemAssignees,
   getWorkItemSprints,
+  getWorkItemStates,
   getWorkItems,
 } from "@/features/work-items/api"
 import type {
@@ -50,16 +51,13 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 })
 
 function typeFilter(value: string | null): WorkItemFilters["type"] {
-  return value === "story" || value === "bug" ? value : "all"
+  return value === "story" || value === "bug" || value === "other"
+    ? value
+    : "all"
 }
 
 function stateFilter(value: string | null): WorkItemFilters["state"] {
-  return value === "new" ||
-    value === "active" ||
-    value === "resolved" ||
-    value === "closed"
-    ? value
-    : "all"
+  return value?.trim() || "all"
 }
 
 function optionFilter(value: string | null): string {
@@ -486,6 +484,12 @@ export function WorkItemsPage() {
     staleTime: 5 * 60_000,
   })
 
+  const { data: stateFacets } = useQuery({
+    queryKey: ["work-item-states"],
+    queryFn: ({ signal }) => getWorkItemStates(signal),
+    staleTime: 5 * 60_000,
+  })
+
   const { data, isPending, isError, isFetching, error, refetch } = useQuery({
     queryKey: [
       "work-items",
@@ -634,6 +638,7 @@ export function WorkItemsPage() {
             <NativeSelectOption value="all">All types</NativeSelectOption>
             <NativeSelectOption value="story">User stories</NativeSelectOption>
             <NativeSelectOption value="bug">Bugs</NativeSelectOption>
+            <NativeSelectOption value="other">Other types</NativeSelectOption>
           </NativeSelect>
         </div>
         <div className="h-11 space-y-2 sm:h-9">
@@ -647,10 +652,14 @@ export function WorkItemsPage() {
             value={filters.state}
           >
             <NativeSelectOption value="all">All states</NativeSelectOption>
-            <NativeSelectOption value="new">New</NativeSelectOption>
-            <NativeSelectOption value="active">Active</NativeSelectOption>
-            <NativeSelectOption value="resolved">Resolved</NativeSelectOption>
-            <NativeSelectOption value="closed">Closed</NativeSelectOption>
+            {(stateFacets?.states.length
+              ? stateFacets.states
+              : ["new", "active", "resolved", "closed"]
+            ).map((state) => (
+              <NativeSelectOption key={state} value={state.toLowerCase()}>
+                {state.charAt(0).toUpperCase() + state.slice(1)}
+              </NativeSelectOption>
+            ))}
           </NativeSelect>
         </div>
         <div className="h-11 space-y-2 sm:h-9">

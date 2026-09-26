@@ -11,6 +11,8 @@ import {
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { Link, useNavigate, useParams } from "react-router"
+import rehypeRaw from "rehype-raw"
+import rehypeSanitize from "rehype-sanitize"
 import remarkGfm from "remark-gfm"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -176,26 +178,27 @@ function MarkdownContent({ value }: { value?: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeRaw, rehypeSanitize]}
       components={{
         h2: ({ ...props }) => (
           <h2 className="mt-4 text-base font-semibold first:mt-0" {...props} />
         ),
         p: ({ ...props }) => (
           <p
-            className="text-sm leading-relaxed text-muted-foreground"
             {...props}
+            className="my-2 text-sm leading-relaxed text-muted-foreground first:mt-0 last:mb-0"
           />
         ),
         ul: ({ ...props }) => (
           <ul
-            className="ml-5 list-disc space-y-1 text-sm leading-relaxed text-muted-foreground"
             {...props}
+            className="my-2 list-inside list-disc space-y-1 pl-0 text-sm leading-relaxed text-muted-foreground first:mt-0 last:mb-0 [&_ol]:pl-5 [&_ul]:pl-5"
           />
         ),
         ol: ({ ...props }) => (
           <ol
-            className="ml-5 list-decimal space-y-1 text-sm leading-relaxed text-muted-foreground"
             {...props}
+            className="my-2 list-inside list-decimal space-y-1 pl-0 text-sm leading-relaxed text-muted-foreground first:mt-0 last:mb-0 [&_ol]:pl-5 [&_ul]:pl-5"
           />
         ),
         strong: ({ ...props }) => (
@@ -216,8 +219,8 @@ function MarkdownContent({ value }: { value?: string }) {
 
 function MarkdownSection({ title, value }: { title: string; value?: string }) {
   return (
-    <Card className="bg-gradient-to-br from-card to-muted/25 py-0 shadow-sm">
-      <CardHeader className="border-b border-border/60 py-4">
+    <Card className="gap-0 bg-gradient-to-br from-card to-muted/25 py-0 shadow-sm">
+      <CardHeader className="border-b border-border/60 py-3">
         <CardTitle className="flex items-center gap-2.5">
           <span
             className="h-4 w-1 rounded-full bg-primary"
@@ -226,7 +229,7 @@ function MarkdownSection({ title, value }: { title: string; value?: string }) {
           {title}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4 py-4">
+      <CardContent className="py-3">
         <MarkdownContent value={value} />
       </CardContent>
     </Card>

@@ -5,11 +5,13 @@ import {
   workItemListSchema,
   workItemSchema,
   workItemSprintsSchema,
+  workItemStatesSchema,
   type WorkItem,
   type WorkItemFilters,
   type WorkItemAssignees,
   type WorkItemList,
   type WorkItemSprints,
+  type WorkItemStates,
 } from "@/features/work-items/model"
 import {
   createPlanRequestSchema,
@@ -69,13 +71,24 @@ export function parseApiError(
 ): Error & { status: number; code?: string } {
   let message = `Work-item request failed (${response.status})`
   let code: string | undefined
+  let errorBody = body
 
-  if (body && typeof body === "object" && body !== null) {
-    if (typeof (body as Record<string, unknown>).message === "string") {
-      message = (body as Record<string, unknown>).message as string
+  if (
+    errorBody &&
+    typeof errorBody === "object" &&
+    "detail" in errorBody &&
+    (errorBody as Record<string, unknown>).detail &&
+    typeof (errorBody as Record<string, unknown>).detail === "object"
+  ) {
+    errorBody = (errorBody as Record<string, unknown>).detail
+  }
+
+  if (errorBody && typeof errorBody === "object" && errorBody !== null) {
+    if (typeof (errorBody as Record<string, unknown>).message === "string") {
+      message = (errorBody as Record<string, unknown>).message as string
     }
-    if (typeof (body as Record<string, unknown>).code === "string") {
-      code = (body as Record<string, unknown>).code as string
+    if (typeof (errorBody as Record<string, unknown>).code === "string") {
+      code = (errorBody as Record<string, unknown>).code as string
     }
   }
 
@@ -222,6 +235,26 @@ export async function fetchWorkItemSprints(
   }
 
   return workItemSprintsSchema.parse(await response.json())
+}
+
+export async function fetchWorkItemStates(
+  signal?: AbortSignal
+): Promise<WorkItemStates> {
+  const baseUrl = getBaseUrl()
+  const response = await fetch(
+    new URL(`${baseUrl}/work-items/facets/states`, window.location.origin),
+    { signal, headers: { Accept: "application/json" } }
+  )
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+  return workItemStatesSchema.parse(await response.json())
 }
 
 export function getMockWorkItemsUrl(): string {

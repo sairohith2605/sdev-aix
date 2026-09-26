@@ -10,6 +10,7 @@ import { MemoryRouter } from "react-router"
 
 import { App } from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { getMockPlansUrl, getMockPlanUrl } from "@/config/api"
 import { resetMockPlans } from "@/mocks/handlers"
@@ -38,6 +39,7 @@ function renderAt(path = "/plans") {
         <ThemeProvider>
           <TooltipProvider>
             <App />
+            <Toaster />
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>
@@ -192,6 +194,96 @@ describe("plans", () => {
     await user.click(screen.getByRole("button", { name: "Save" }))
 
     await screen.findByText("saved", undefined, { timeout: 5000 })
+  })
+
+  it("keeps the plan when delete confirmation is cancelled", async () => {
+    const plan = {
+      id: "plan-delete-cancel",
+      workItemId: workItems[0].id,
+      workItem: workItems[0],
+      functionalPlan: [],
+      technicalPlan: [],
+      status: "draft",
+      createdAt: "2026-09-25T10:00:00Z",
+      updatedAt: "2026-09-25T10:00:00Z",
+    }
+    server.use(http.get(getMockPlanUrl(), () => HttpResponse.json(plan)))
+    const user = userEvent.setup()
+    renderAt("/plans/plan-delete-cancel")
+
+    await user.click(await screen.findByRole("button", { name: "Delete" }))
+
+    expect(
+      screen.getByText(/#1042 — Let members sign in with single sign-on/)
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", {
+        name: "Let members sign in with single sign-on",
+      })
+    ).toBeInTheDocument()
+  })
+
+  it("deletes the plan, shows confirmation, and allows a new plan from the work item", async () => {
+    const user = userEvent.setup()
+    renderAt("/work-items/1042")
+
+    await user.click(await screen.findByRole("button", { name: "Create plan" }))
+    expect(await screen.findByText("Functional plan")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Delete" }))
+    await user.click(screen.getByRole("button", { name: "Delete plan" }))
+
+    expect(
+      await screen.findByRole("heading", { name: "Plans" })
+    ).toBeInTheDocument()
+    expect(await screen.findByText("Plan deleted")).toBeInTheDocument()
+    expect(
+      await screen.findByText("No plans yet. Create one from a work item.")
+    ).toBeInTheDocument()
+
+    server.use(http.get(getMockPlansUrl(), () => HttpResponse.json([])))
+    await user.click(screen.getByRole("link", { name: "Work Items" }))
+    const workItemLinks = await screen.findAllByRole("link", {
+      name: "Let members sign in with single sign-on",
+    })
+    await user.click(workItemLinks[0])
+
+    expect(
+      await screen.findByRole("button", { name: "Create plan" })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps the plan open and shows an error if deletion fails", async () => {
+    const plan = {
+      id: "plan-delete-failure",
+      workItemId: workItems[0].id,
+      workItem: workItems[0],
+      functionalPlan: [],
+      technicalPlan: [],
+      status: "draft",
+      createdAt: "2026-09-25T10:00:00Z",
+      updatedAt: "2026-09-25T10:00:00Z",
+    }
+    server.use(
+      http.get(getMockPlanUrl(), () => HttpResponse.json(plan)),
+      http.delete(getMockPlanUrl(), () =>
+        HttpResponse.json({ message: "Unavailable" }, { status: 503 })
+      )
+    )
+    const user = userEvent.setup()
+    renderAt("/plans/plan-delete-failure")
+
+    await user.click(await screen.findByRole("button", { name: "Delete" }))
+    await user.click(screen.getByRole("button", { name: "Delete plan" }))
+
+    expect(
+      await screen.findByText("Could not delete the plan. Try again.")
+    ).toBeInTheDocument()
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled()
   })
 
   it("exports the currently edited plan without requiring save", async () => {

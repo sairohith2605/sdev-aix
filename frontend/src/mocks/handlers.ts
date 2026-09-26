@@ -284,6 +284,19 @@ export const handlers = [
     plansStore.set(updated.id, updated)
     return HttpResponse.json(updated)
   }),
+  http.delete(getMockPlanUrl(), async ({ params }) => {
+    await delay(getMockDelay())
+    const planId = params.planId as string
+    if (!plansStore.has(planId)) {
+      return HttpResponse.json(
+        { message: "Plan not found.", code: "PLAN_NOT_FOUND", status: 404 },
+        { status: 404 }
+      )
+    }
+
+    plansStore.delete(planId)
+    return new HttpResponse(null, { status: 204 })
+  }),
 ]
 
 export { getPlansForWorkItem }

@@ -1,5 +1,11 @@
 import type { Plan } from "@/features/plans/model"
-import { fetchPlan, fetchPlans, generatePlan, savePlan } from "@/config/api"
+import {
+  deletePlanRequest,
+  fetchPlan,
+  fetchPlans,
+  generatePlan,
+  savePlan,
+} from "@/config/api"
 import type { CreatePlanRequest, SavePlanRequest } from "@/features/plans/model"
 
 export async function getPlans(signal?: AbortSignal): Promise<Plan[]> {
@@ -26,4 +32,11 @@ export async function updatePlan(
   signal?: AbortSignal
 ): Promise<Plan> {
   return savePlan(planId, request, signal)
+}
+
+export async function removePlan(
+  planId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  return deletePlanRequest(planId, signal)
 }

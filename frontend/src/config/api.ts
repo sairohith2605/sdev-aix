@@ -350,3 +350,24 @@ export async function savePlan(
 
   return planSchema.parse(await response.json())
 }
+
+export async function deletePlanRequest(
+  planId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch(getPlanUrl(planId), {
+    method: "DELETE",
+    signal,
+    headers: { Accept: "application/json" },
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+}

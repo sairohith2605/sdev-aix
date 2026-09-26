@@ -11,9 +11,20 @@ import { Link, useLocation, useNavigate, useParams } from "react-router"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { getPlan, updatePlan } from "@/features/plans/api"
+import { toast } from "@/components/ui/toast"
+import { getPlan, removePlan, updatePlan } from "@/features/plans/api"
+import type { Plan } from "@/features/plans/model"
 import { exportPlanZip } from "@/features/plans/export"
 import { deletePlan, savePlan } from "@/features/plans/repository"
 import { cn } from "@/lib/utils"
@@ -46,6 +57,7 @@ export function PlanDetailPage() {
   const queryClient = useQueryClient()
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const fromWorkItemId = (location.state as { fromWorkItemId?: number } | null)
     ?.fromWorkItemId
   const backTo =
@@ -85,10 +97,21 @@ export function PlanDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: async () => {
       if (!planId) throw new Error("No plan to delete")
+      await removePlan(planId)
       await deletePlan(planId)
     },
     onSuccess: () => {
+      queryClient.setQueryData(["plans"], (plans: Plan[] | undefined) =>
+        plans?.filter((existing) => existing.id !== planId)
+      )
+      queryClient.removeQueries({ queryKey: ["plan", planId], exact: true })
       void queryClient.invalidateQueries({ queryKey: ["plans"] })
+      setIsDeleteDialogOpen(false)
+      toast.add({
+        title: "Plan deleted",
+        description: `The plan for work item #${plan?.workItemId} was deleted.`,
+        type: "success",
+      })
       void navigate("/plans")
     },
   })
@@ -173,7 +196,7 @@ export function PlanDetailPage() {
         <div className="flex items-center gap-2">
           <Badge variant="secondary">{plan.status}</Badge>
           <Button
-            onClick={() => deleteMutation.mutate()}
+            onClick={() => setIsDeleteDialogOpen(true)}
             size="sm"
             variant="outline"
           >
@@ -198,6 +221,41 @@ export function PlanDetailPage() {
           </Button>
         </div>
       </div>
+
+      <AlertDialog
+        onOpenChange={setIsDeleteDialogOpen}
+        open={isDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the plan for work item{" "}
+              <strong className="font-semibold text-foreground">
+                #{plan.workItemId} — {plan.workItem.title}
+              </strong>
+              ? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteMutation.isError ? (
+            <p className="text-sm text-destructive" role="alert">
+              Could not delete the plan. Try again.
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteMutation.mutate()}
+              variant="destructive"
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete plan"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {exportError ? (
         <p className="text-sm text-destructive" role="alert">

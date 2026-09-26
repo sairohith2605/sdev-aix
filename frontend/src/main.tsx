@@ -6,6 +6,7 @@ import { BrowserRouter } from "react-router"
 import "./index.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
+import { Toaster } from "@/components/ui/toast.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip.tsx"
 import { shouldRetry } from "@/config/api"
 
@@ -21,6 +22,7 @@ function renderApp() {
           <ThemeProvider>
             <TooltipProvider>
               <App />
+              <Toaster />
             </TooltipProvider>
           </ThemeProvider>
         </QueryClientProvider>

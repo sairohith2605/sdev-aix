@@ -55,6 +55,28 @@ VITE_API_BASE_URL=/api
 - `VITE_*` values are public in the browser bundle.
 - The initial connector stores one local connection and does not yet include app authentication. Bind the backend to localhost and use it only in a trusted local environment.
 
+### Copilot story-analysis probe
+
+The backend includes a milestone-1 probe that analyzes one connected Azure DevOps work item with GitHub Copilot. It prints a validated JSON analysis (goal, sourced facts, gaps, assumptions, and clarification questions). Planning workflows and a Copilot connection UI are still being built. The probe sends the selected work item's title, description, and acceptance criteria to GitHub Copilot; do not run it on items your organization does not allow you to share with Copilot.
+
+Create a **user-owned GitHub fine-grained PAT** with the **Copilot Requests** account permission using an account that has Copilot access. This is separate from your Azure DevOps PAT; no GitHub app registration or separately installed Copilot CLI is needed. [GitHub's PAT instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/install-copilot-cli#authenticating-with-a-personal-access-token) explain the permission and account requirements.
+
+For local backend development, put `COPILOT_GITHUB_TOKEN=<your GitHub PAT>` in your existing private `backend/.env`, alongside your existing Azure DevOps connection configuration. Run from `backend/`:
+
+```sh
+uv run --extra dev --env-file .env python -m app.probes.copilot --work-item-id 123
+```
+
+Replace `123` with a work-item ID in your connected project. The probe reads the PAT only at runtime; it does not save it, send it to the frontend, or print it. The SDK's local runtime files are stored in `backend/data/copilot/` by default. `COPILOT_MODEL` defaults to `auto`; override it if your account needs a specific supported model.
+
+For Compose, create a private `secrets/copilot.env.local` containing just `COPILOT_GITHUB_TOKEN=<your GitHub PAT>` and restrict it to your user (`chmod 600 secrets/copilot.env.local`). After building the stack, run:
+
+```sh
+docker compose run --rm --env-from-file ./secrets/copilot.env.local backend python -m app.probes.copilot --work-item-id 123
+```
+
+Compose pre-downloads the SDK runtime during the backend image build and uses the persistent backend volume for its writable runtime state. This proof invokes the model at most twice (one corrective retry if its JSON is invalid), so it can consume Copilot usage allowance. A missing/invalid PAT, unavailable Copilot access, or invalid model output stops with an error instead of fabricating results.
+
 ### Run Locally with Docker Compose
 
 Compose runs the frontend, FastAPI backend, and a one-shot Python key initializer. On every startup, the initializer checks the persistent volume and creates the Fernet key only if it is missing; it never replaces an existing key. SQLite and the key live together in the named `backend-data` volume. The Azure DevOps PAT is encrypted with this key. Only the frontend is published, bound to `127.0.0.1`; the backend and initializer are not published. The app has no login yet, so keep it local.

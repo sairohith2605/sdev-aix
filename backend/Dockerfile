@@ -3,22 +3,28 @@ FROM python:3.12.12-slim-bookworm AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
-    VIRTUAL_ENV=/opt/venv
+    VIRTUAL_ENV=/opt/venv \
+    COPILOT_CLI_EXTRACT_DIR=/opt/copilot-runtime
 
 RUN python -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 WORKDIR /build
 COPY pyproject.toml ./
+RUN python -c "import pathlib, subprocess, tomllib; dependencies = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['dependencies']; subprocess.run(['pip', 'install', *dependencies], check=True)"
+RUN python -m copilot download-runtime
+
 COPY app ./app
-RUN pip install .
+RUN pip install --no-deps .
 
 FROM python:3.12.12-slim-bookworm AS runtime
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    HOME=/home/app
+    HOME=/home/app \
+    COPILOT_CLI_EXTRACT_DIR=/opt/copilot-runtime \
+    COPILOT_SKIP_CLI_DOWNLOAD=1
 
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --create-home --home-dir /home/app app \
@@ -26,6 +32,7 @@ RUN groupadd --system --gid 10001 app \
 
 WORKDIR /app
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
+COPY --from=builder --chown=app:app /opt/copilot-runtime /opt/copilot-runtime
 COPY --chown=app:app app ./app
 
 USER 10001:10001

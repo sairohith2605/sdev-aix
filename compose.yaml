@@ -30,6 +30,8 @@ services:
       CREDENTIAL_ENCRYPTION_KEY_FILE: /data/credential_encryption_key
       ADO_API_VERSION: ${ADO_API_VERSION:-7.1}
       ADO_REQUEST_TIMEOUT_SECONDS: ${ADO_REQUEST_TIMEOUT_SECONDS:-15}
+      COPILOT_DATA_PATH: /data/copilot
+      COPILOT_MODEL: ${COPILOT_MODEL:-auto}
     volumes:
       - backend-data:/data
     depends_on:

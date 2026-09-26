@@ -2,6 +2,7 @@
 .env
 .env.*
 *.env.local
+backend/data/
 
 # Local tool and OS files
 .DS_Store

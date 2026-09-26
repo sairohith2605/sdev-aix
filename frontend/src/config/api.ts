@@ -11,6 +11,20 @@ import {
   type WorkItemList,
   type WorkItemSprints,
 } from "@/features/work-items/model"
+import {
+  createPlanRequestSchema,
+  planSchema,
+  persistPlanRequestSchema,
+  requestPlanRevisionRequestSchema,
+  submitClarificationAnswersRequestSchema,
+  type Plan,
+} from "@/features/plans/model"
+import type {
+  CreatePlanRequest,
+  RequestPlanRevisionRequest,
+  PersistPlanRequest,
+  SubmitClarificationAnswersRequest,
+} from "@/features/plans/model"
 
 export const apiErrorSchema = z.object({
   message: z.string(),
@@ -233,4 +247,208 @@ export function getMockWorkItemSprintsUrl(): string {
     `${baseUrl}/work-items/facets/sprints`,
     window.location.origin
   ).toString()
+}
+
+export function getPlansUrl(): URL {
+  const baseUrl = getBaseUrl()
+  return new URL(`${baseUrl}/plans`, window.location.origin)
+}
+
+export function getPlanUrl(planId: string): URL {
+  return new URL(`${getPlansUrl()}/${planId}`, window.location.origin)
+}
+
+export function getMockPlansUrl(): string {
+  return getPlansUrl().toString()
+}
+
+export function getMockPlanUrl(): string {
+  return `${getMockPlansUrl()}/:planId`
+}
+
+export async function fetchPlans(signal?: AbortSignal): Promise<Plan[]> {
+  const response = await fetch(getPlansUrl(), {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return z.array(planSchema).parse(await response.json())
+}
+
+export async function fetchPlan(
+  planId: string,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const response = await fetch(getPlanUrl(planId), {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return planSchema.parse(await response.json())
+}
+
+export async function generatePlan(
+  request: CreatePlanRequest,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const validated = createPlanRequestSchema.parse(request)
+  const response = await fetch(getPlansUrl(), {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(validated),
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return planSchema.parse(await response.json())
+}
+
+export async function savePlan(
+  planId: string,
+  request: PersistPlanRequest,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const validated = persistPlanRequestSchema.parse(request)
+  const response = await fetch(getPlanUrl(planId), {
+    method: "PUT",
+    signal,
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(validated),
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
+
+  return planSchema.parse(await response.json())
+}
+
+async function postPlanAction(
+  planId: string,
+  action: string,
+  body?: unknown,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const response = await fetch(
+    new URL(
+      `${getPlanUrl(planId).toString()}/${action}`,
+      window.location.origin
+    ),
+    {
+      method: "POST",
+      signal,
+      headers: {
+        Accept: "application/json",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }
+  )
+
+  if (!response.ok) {
+    let errorBody: unknown
+    try {
+      errorBody = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, errorBody)
+  }
+
+  return planSchema.parse(await response.json())
+}
+
+export async function submitPlanClarifications(
+  planId: string,
+  request: SubmitClarificationAnswersRequest,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const validated = submitClarificationAnswersRequestSchema.parse(request)
+  return postPlanAction(planId, "clarifications", validated, signal)
+}
+
+export async function generatePlanDraft(
+  planId: string,
+  signal?: AbortSignal
+): Promise<Plan> {
+  return postPlanAction(planId, "draft", undefined, signal)
+}
+
+export async function requestPlanRevision(
+  planId: string,
+  request: RequestPlanRevisionRequest,
+  signal?: AbortSignal
+): Promise<Plan> {
+  const validated = requestPlanRevisionRequestSchema.parse(request)
+  return postPlanAction(planId, "revisions", validated, signal)
+}
+
+export async function finalizePlan(
+  planId: string,
+  signal?: AbortSignal
+): Promise<Plan> {
+  return postPlanAction(planId, "finalize", undefined, signal)
+}
+
+export async function reopenPlan(
+  planId: string,
+  signal?: AbortSignal
+): Promise<Plan> {
+  return postPlanAction(planId, "reopen", undefined, signal)
+}
+
+export async function deletePlanRequest(
+  planId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch(getPlanUrl(planId), {
+    method: "DELETE",
+    signal,
+    headers: { Accept: "application/json" },
+  })
+
+  if (!response.ok) {
+    let body: unknown
+    try {
+      body = await response.clone().json()
+    } catch {
+      // ignore
+    }
+    throw parseApiError(response, body)
+  }
 }

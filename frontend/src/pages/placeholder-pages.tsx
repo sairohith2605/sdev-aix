@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Link, useParams } from "react-router"
+import { Link } from "react-router"
 
 import { buttonVariants } from "@/components/ui/button"
 
@@ -24,24 +24,6 @@ function PagePlaceholder({
         {children}
       </p>
     </section>
-  )
-}
-
-export function PlansPage() {
-  return (
-    <PagePlaceholder label="Planning" title="Plans">
-      Return to your functional and technical plans here.
-    </PagePlaceholder>
-  )
-}
-
-export function PlanDetailPage() {
-  const { planId } = useParams()
-
-  return (
-    <PagePlaceholder label="Plan" title={`Plan ${planId}`}>
-      Continue clarifications and review the resulting specifications here.
-    </PagePlaceholder>
   )
 }
 

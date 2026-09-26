@@ -97,12 +97,14 @@ export function ThemeProvider({
 
     return defaultTheme
   })
-  const [resolvedTheme, setResolvedTheme] = React.useState<ResolvedTheme>(() => {
-    const storedTheme = localStorage.getItem(storageKey)
-    const initialTheme = isTheme(storedTheme) ? storedTheme : defaultTheme
+  const [resolvedTheme, setResolvedTheme] = React.useState<ResolvedTheme>(
+    () => {
+      const storedTheme = localStorage.getItem(storageKey)
+      const initialTheme = isTheme(storedTheme) ? storedTheme : defaultTheme
 
-    return initialTheme === "system" ? getSystemTheme() : initialTheme
-  })
+      return initialTheme === "system" ? getSystemTheme() : initialTheme
+    }
+  )
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {

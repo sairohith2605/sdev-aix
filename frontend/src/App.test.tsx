@@ -60,7 +60,9 @@ describe("app routing", () => {
 
     await user.click(plansLink)
 
-    expect(screen.getByRole("heading", { name: "Plans" })).toBeInTheDocument()
+    expect(
+      await screen.findByRole("heading", { name: "Plans" })
+    ).toBeInTheDocument()
     expect(plansLink).toHaveAttribute("aria-current", "page")
     expect(document.title).toBe("Plans | sdev-aix")
     await waitFor(() => expect(screen.getByRole("main")).toHaveFocus())
@@ -88,18 +90,36 @@ describe("app routing", () => {
   })
 
   it.each([
-    ["/plans/abc", "Plan abc", "Plan | sdev-aix", "Plans"],
+    ["/plans", "Plans", "Plans | sdev-aix", "Plans"],
     ["/connections", "Connections", "Connections | sdev-aix", "Connections"],
-    ["/plans/", "Plans", "Plans | sdev-aix", "Plans"],
-  ])("handles a direct visit to %s", (path, heading, title, activeLink) => {
-    renderAt(path)
+  ])(
+    "handles a direct visit to %s",
+    async (path, heading, title, activeLink) => {
+      renderAt(path)
 
-    expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument()
-    expect(document.title).toBe(title)
+      expect(
+        await screen.findByRole("heading", { name: heading })
+      ).toBeInTheDocument()
+      expect(document.title).toBe(title)
+      expect(
+        within(
+          screen.getByRole("navigation", { name: "Primary navigation" })
+        ).getByRole("link", { name: activeLink })
+      ).toHaveAttribute("aria-current", "page")
+    }
+  )
+
+  it("shows not-found for a missing plan", async () => {
+    renderAt("/plans/missing")
+
+    expect(
+      await screen.findByRole("heading", { name: "Plan not found" })
+    ).toBeInTheDocument()
+    expect(document.title).toBe("Plan | sdev-aix")
     expect(
       within(
         screen.getByRole("navigation", { name: "Primary navigation" })
-      ).getByRole("link", { name: activeLink })
+      ).getByRole("link", { name: "Plans" })
     ).toHaveAttribute("aria-current", "page")
   })
 

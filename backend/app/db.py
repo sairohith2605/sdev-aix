@@ -70,14 +70,14 @@ def initialize_plan_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(database_path, timeout=5)) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 6:
+        if version > 7:
             raise RuntimeError("This database requires a newer sdev-aix version")
-        if version == 6:
+        if version == 7:
             return
         with connection:
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 6:
+            if version > 7:
                 raise RuntimeError("This database requires a newer sdev-aix version")
             if version < 1:
                 connection.execute(
@@ -261,3 +261,13 @@ def initialize_plan_schema(database_path: Path) -> None:
                     "CREATE INDEX plan_runs_status_idx ON plan_runs(status, created_at)"
                 )
                 connection.execute("PRAGMA user_version = 6")
+            if version < 7:
+                connection.execute(
+                    "ALTER TABLE repository_connection ADD COLUMN "
+                    "skipped_file_count INTEGER NOT NULL DEFAULT 0"
+                )
+                connection.execute(
+                    "ALTER TABLE repository_connection ADD COLUMN "
+                    "index_version INTEGER NOT NULL DEFAULT 1"
+                )
+                connection.execute("PRAGMA user_version = 7")

@@ -28,6 +28,11 @@ class RepositoryBrowseResponse(BaseModel):
     hasMore: bool
 
 
+class IndexedLanguage(BaseModel):
+    language: str
+    fileCount: int = Field(ge=0)
+
+
 class RepositoryConnectionSummary(BaseModel):
     connected: bool
     status: Literal["disconnected", "queued", "indexing", "ready", "failed"] = (
@@ -46,6 +51,8 @@ class RepositoryConnectionSummary(BaseModel):
     indexedAt: datetime | None = None
     fileCount: int = 0
     chunkCount: int = 0
+    skippedFileCount: int = 0
+    indexedLanguages: list[IndexedLanguage] = Field(default_factory=list)
 
 
 class RepositorySnapshot(BaseModel):
@@ -113,5 +120,6 @@ class RepositoryIndex(BaseModel):
     dirty: bool
     indexed_at: datetime
     file_count: int
+    skipped_file_count: int = 0
     files: list[IndexedFile]
     chunks: list[IndexedChunk]

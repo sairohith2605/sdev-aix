@@ -195,6 +195,34 @@ export function RepositoryConnectionCard() {
                 </dd>
               </div>
             </dl>
+            <div className="space-y-1 text-sm">
+              <p className="font-medium">Indexed file types</p>
+              {connection.data?.indexedLanguages.length ? (
+                <ul
+                  className="flex flex-wrap gap-2"
+                  aria-label="Indexed languages"
+                >
+                  {connection.data.indexedLanguages.map(
+                    ({ language, fileCount }) => (
+                      <li
+                        key={language}
+                        className="rounded-md border px-2 py-1"
+                      >
+                        {language}: {fileCount}
+                      </li>
+                    )
+                  )}
+                </ul>
+              ) : (
+                <p className="text-muted-foreground">
+                  No file types to display.
+                </p>
+              )}
+              <p className="text-muted-foreground">
+                {connection.data?.skippedFileCount ?? 0} tracked files skipped
+                (unsupported types, safety exclusions, or unreadable files).
+              </p>
+            </div>
             <p className="font-mono text-xs break-all text-muted-foreground">
               {connection.data?.rootPath}
             </p>

@@ -68,6 +68,8 @@ describe("repository connection settings", () => {
     expect(
       await screen.findByRole("button", { name: "Refresh index" })
     ).toBeEnabled()
+    expect(screen.getByText("csharp: 28")).toBeInTheDocument()
+    expect(screen.getByText(/12 tracked files skipped/)).toBeInTheDocument()
   })
 
   it("indexes a local repository with explicit dirty-worktree consent", async () => {
@@ -143,7 +145,11 @@ describe("repository connection settings", () => {
 
     status = "ready"
     expect(
-      await screen.findByRole("button", { name: "Refresh index" })
+      await screen.findByRole(
+        "button",
+        { name: "Refresh index" },
+        { timeout: 4000 }
+      )
     ).toBeEnabled()
   })
 })

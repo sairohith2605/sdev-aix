@@ -218,6 +218,12 @@ export const handlers = [
       dirty: body.includeUncommitted === true,
       indexedAt: "2026-09-27T10:00:00Z",
       fileCount: 84,
+      skippedFileCount: 12,
+      indexedLanguages: [
+        { language: "csharp", fileCount: 28 },
+        { language: "javascript", fileCount: 30 },
+        { language: "css", fileCount: 26 },
+      ],
       chunkCount: 312,
     }
     return HttpResponse.json(mockRepositoryConnection)

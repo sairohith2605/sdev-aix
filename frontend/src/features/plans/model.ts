@@ -47,6 +47,19 @@ export const planRevisionSchema = z.object({
   createdAt: z.iso.datetime(),
 })
 
+export const planAnalysisSchema = z.object({
+  goal: z.string(),
+  facts: z.array(
+    z.object({
+      statement: z.string(),
+      source: z.enum(["title", "description", "acceptanceCriteria"]),
+    })
+  ),
+  gaps: z.array(z.string()),
+  assumptions: z.array(z.string()),
+  questions: z.array(z.object({ prompt: z.string(), rationale: z.string() })),
+})
+
 export const planStatusSchema = z.enum(["clarifying", "review", "finalized"])
 
 export const planSourceSchema = z.object({
@@ -59,6 +72,7 @@ export const planSchema = z.object({
   workItemId: z.number().int().positive(),
   source: planSourceSchema.optional(),
   workItem: workItemSchema,
+  analysis: planAnalysisSchema.nullable().optional(),
   status: planStatusSchema.default("clarifying"),
   clarificationRounds: z.array(planClarificationRoundSchema).default([]),
   conversation: z.array(planMessageSchema).default([]),
@@ -89,8 +103,24 @@ export const createPlanRequestSchema = z.object({
 
 export const submitClarificationAnswersRequestSchema = z.object({
   roundId: z.string().min(1),
+  expectedVersion: z.number().int().positive().optional(),
   answers: z.array(planAnswerSchema),
 })
+
+export const planRunSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  status: z.enum([
+    "queued",
+    "running",
+    "awaiting_input",
+    "ready_for_draft",
+    "failed",
+  ]),
+  errorCode: z.string().nullable(),
+})
+
+export type PlanRun = z.infer<typeof planRunSchema>
 
 export const requestPlanRevisionRequestSchema = z.object({
   feedback: z.string().trim().min(1).max(4000),

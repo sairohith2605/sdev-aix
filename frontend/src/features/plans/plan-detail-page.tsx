@@ -5,7 +5,7 @@ import {
   DownloadIcon,
   SaveIcon,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Link, useLocation, useNavigate, useParams } from "react-router"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -30,14 +30,21 @@ import {
   approvePlan,
   generateDraft,
   getPlan,
+  getPlanRun,
   reopenDraft,
+  retryRun,
   removePlan,
   revisePlan,
   submitClarifications,
   updatePlan,
 } from "@/features/plans/api"
 import { exportPlanZip } from "@/features/plans/export"
-import type { Plan, PlanAnswer, PlanSection } from "@/features/plans/model"
+import type {
+  Plan,
+  PlanAnswer,
+  PlanRun,
+  PlanSection,
+} from "@/features/plans/model"
 import { deletePlan, savePlan } from "@/features/plans/repository"
 import { cn } from "@/lib/utils"
 
@@ -142,6 +149,9 @@ function PlanDetailHeader({
 function ClarificationFlow({
   plan,
   agentAvailable,
+  run,
+  isRetrying,
+  onRetry,
   currentRound,
   answers,
   error,
@@ -155,6 +165,9 @@ function ClarificationFlow({
 }: {
   plan: Plan
   agentAvailable: boolean
+  run: PlanRun | undefined
+  isRetrying: boolean
+  onRetry: () => void
   currentRound: Plan["clarificationRounds"][number] | undefined
   answers: Record<string, { value: string; unknown: boolean }>
   error: string | null
@@ -175,10 +188,81 @@ function ClarificationFlow({
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {agentAvailable
-              ? "Answer what you can. Mark uncertain details as unknown; the mock agent may ask a follow-up instead of inventing an answer."
-              : "The agent workflow is not connected yet. Saved plan details remain available here."}
+              ? "Answer what you can. Mark uncertain details as unknown; the agent may ask a follow-up instead of inventing an answer."
+              : "Your story and answers are saved while the planning agent works."}
           </p>
         </div>
+
+        {plan.analysis ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Story Analysis</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <p>{plan.analysis.goal}</p>
+              {plan.analysis.facts.length ? (
+                <div>
+                  <h3 className="font-medium">Story facts</h3>
+                  <ul className="mt-1 list-inside list-disc space-y-1 text-muted-foreground">
+                    {plan.analysis.facts.map((fact, index) => (
+                      <li key={`${fact.source}-${index}`}>
+                        {fact.statement}{" "}
+                        <span className="text-xs">({fact.source})</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {plan.analysis.gaps.length ? (
+                <div>
+                  <h3 className="font-medium">Open gaps</h3>
+                  <ul className="mt-1 list-inside list-disc space-y-1 text-muted-foreground">
+                    {plan.analysis.gaps.map((gap, index) => (
+                      <li key={`${gap}-${index}`}>{gap}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {plan.analysis.assumptions.length ? (
+                <div>
+                  <h3 className="font-medium">Assumptions</h3>
+                  <ul className="mt-1 list-inside list-disc space-y-1 text-muted-foreground">
+                    {plan.analysis.assumptions.map((assumption, index) => (
+                      <li key={`${assumption}-${index}`}>{assumption}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {run?.status === "failed" ? (
+          <Alert variant="destructive">
+            <AlertTitle>Analysis paused</AlertTitle>
+            <AlertDescription>
+              {run.errorCode ?? "Copilot could not finish this step."} Your
+              existing plan and answers are saved.
+            </AlertDescription>
+            <Button disabled={isRetrying} onClick={onRetry} variant="outline">
+              {isRetrying ? "Retrying…" : "Retry analysis"}
+            </Button>
+          </Alert>
+        ) : null}
+
+        {!agentAvailable &&
+        (run?.status === "queued" ||
+          run?.status === "running" ||
+          run?.status === "awaiting_input" ||
+          !run) ? (
+          <Card>
+            <CardContent aria-live="polite" className="py-5" role="status">
+              {run?.status === "awaiting_input"
+                ? "Preparing clarification questions…"
+                : "Analyzing the story and your answers…"}
+            </CardContent>
+          </Card>
+        ) : null}
 
         {currentRound ? (
           <Card>
@@ -247,14 +331,22 @@ function ClarificationFlow({
               </Button>
             </CardContent>
           </Card>
-        ) : allSubmitted ? (
+        ) : allSubmitted || run?.status === "ready_for_draft" ? (
           <Card>
             <CardHeader>
-              <CardTitle>Clarifications Complete</CardTitle>
+              <CardTitle>
+                {!agentAvailable && run?.status !== "ready_for_draft"
+                  ? "Reviewing Answers"
+                  : "Clarifications Complete"}
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Review the conversation, then generate a provisional draft.
+                {!agentAvailable && run?.status !== "ready_for_draft"
+                  ? "The agent is checking whether it needs one focused follow-up question."
+                  : agentAvailable
+                    ? "Review the conversation, then generate a provisional draft."
+                    : "Analysis is complete. Provisional draft generation is the next planning step."}
               </p>
               <Button
                 disabled={isGeneratingDraft || !agentAvailable}
@@ -262,6 +354,12 @@ function ClarificationFlow({
               >
                 {isGeneratingDraft ? "Generating draft…" : "Generate draft"}
               </Button>
+              {!agentAvailable ? (
+                <p className="text-xs text-muted-foreground">
+                  Functional and technical draft generation is the next agent
+                  workflow step.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         ) : null}
@@ -546,6 +644,30 @@ export function PlanDetailPage() {
     enabled: Boolean(planId),
   })
 
+  const runQuery = useQuery({
+    queryKey: ["plan-run", planId],
+    queryFn: ({ signal }) => getPlanRun(planId ?? "", signal),
+    enabled: !mockMode && Boolean(planId) && plan?.status === "clarifying",
+    refetchInterval: (query) =>
+      query.state.data?.status === "queued" ||
+      query.state.data?.status === "running"
+        ? 1000
+        : false,
+  })
+  const retryMutation = useMutation({
+    mutationFn: () => retryRun(planId ?? ""),
+    onSuccess: (run) => queryClient.setQueryData(["plan-run", planId], run),
+  })
+
+  useEffect(() => {
+    if (
+      runQuery.data?.status === "awaiting_input" ||
+      runQuery.data?.status === "ready_for_draft"
+    ) {
+      void queryClient.invalidateQueries({ queryKey: ["plan", planId] })
+    }
+  }, [planId, queryClient, runQuery.data?.id, runQuery.data?.status])
+
   const saveMutation = useMutation({
     mutationFn: async (updated: Plan | undefined) => {
       if (!updated) throw new Error("No plan to save")
@@ -567,11 +689,15 @@ export function PlanDetailPage() {
   })
 
   const clarificationMutation = useMutation({
-    mutationFn: (request: { roundId: string; answers: PlanAnswer[] }) =>
-      submitClarifications(planId ?? "", request),
+    mutationFn: (request: {
+      roundId: string
+      expectedVersion?: number
+      answers: PlanAnswer[]
+    }) => submitClarifications(planId ?? "", request),
     onSuccess: (updatedPlan) => {
       queryClient.setQueryData(["plan", planId], updatedPlan)
       void queryClient.invalidateQueries({ queryKey: ["plans"] })
+      void queryClient.invalidateQueries({ queryKey: ["plan-run", planId] })
       setAnswers({})
       setAnswerError(null)
     },
@@ -740,7 +866,8 @@ export function PlanDetailPage() {
     .reverse()
     .find((round) => round.submittedAt === null)
   const allClarificationsSubmitted =
-    plan.clarificationRounds.length > 0 && !currentRound
+    (plan.clarificationRounds.length > 0 && !currentRound) ||
+    (!mockMode && runQuery.data?.status === "ready_for_draft")
 
   const submitCurrentRound = () => {
     if (!currentRound) return
@@ -756,6 +883,7 @@ export function PlanDetailPage() {
     setAnswerError(null)
     clarificationMutation.mutate({
       roundId: currentRound.id,
+      expectedVersion: plan.version ?? 1,
       answers: currentRound.questions.map((question) => ({
         questionId: question.id,
         value: answers[question.id]?.value.trim() ?? "",
@@ -873,9 +1001,27 @@ export function PlanDetailPage() {
 
       <PlanDetailHeader plan={plan} fromWorkItem={fromWorkItem} />
 
+      {!mockMode && runQuery.isError && plan.status === "clarifying" ? (
+        <Alert variant="destructive">
+          <AlertTitle>Could not load analysis status</AlertTitle>
+          <AlertDescription>
+            Your plan is saved. Refresh its status to see whether questions are
+            ready.
+          </AlertDescription>
+          <Button onClick={() => void runQuery.refetch()} variant="outline">
+            Refresh status
+          </Button>
+        </Alert>
+      ) : null}
+
       {plan.status === "clarifying" ? (
         <ClarificationFlow
-          agentAvailable={mockMode}
+          agentAvailable={
+            mockMode || runQuery.data?.status === "awaiting_input"
+          }
+          run={mockMode ? undefined : runQuery.data}
+          isRetrying={retryMutation.isPending}
+          onRetry={() => retryMutation.mutate()}
           allSubmitted={allClarificationsSubmitted}
           answers={answers}
           plan={plan}

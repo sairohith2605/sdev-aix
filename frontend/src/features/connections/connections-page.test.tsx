@@ -8,11 +8,37 @@ import { MemoryRouter } from "react-router"
 import { App } from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { resetMockCopilotConnection } from "@/mocks/handlers"
 import { server } from "@/mocks/server"
 
 afterEach(() => {
   cleanup()
   server.resetHandlers()
+  resetMockCopilotConnection()
+})
+
+describe("GitHub Copilot connection settings", () => {
+  it("tests and saves a PAT without displaying it", async () => {
+    const user = userEvent.setup()
+    renderConnections()
+
+    const input = screen.getByLabelText("GitHub Copilot PAT")
+    await user.type(input, "github-test-secret")
+    await user.click(screen.getByRole("button", { name: "Test Copilot" }))
+    expect(
+      await screen.findByText(/Copilot access verified/)
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Save Copilot PAT" }))
+    expect(
+      await screen.findByRole("button", { name: "Replace PAT" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByDisplayValue("github-test-secret")
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("github-test-secret")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Disconnect Copilot" }))
+    expect(await screen.findByLabelText("GitHub Copilot PAT")).toHaveValue("")
+  })
 })
 
 function renderConnections() {

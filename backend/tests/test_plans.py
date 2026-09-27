@@ -5,7 +5,12 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.db import ConnectionStore
-from app.dependencies import get_plan_service
+from app.dependencies import (
+    get_connection_service_dependency,
+    get_copilot_connection_service,
+    get_plan_service,
+)
+from app.errors import PlanError
 from app.main import app
 from app.planning.models import (
     PlanAnswer,
@@ -102,7 +107,35 @@ def test_plan_migration_preserves_connection_and_is_repeatable(tmp_path: Path) -
     assert store.list() == []
     assert connection_store.get()["encrypted_pat"] == "encrypted-existing-pat"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+
+
+def test_migrating_v1_plan_keeps_snapshot_and_ado_connection(tmp_path: Path) -> None:
+    database = tmp_path / "upgrade.db"
+    connection_store = ConnectionStore(database)
+    connection_store.save(
+        {
+            "organization": "contoso",
+            "project_id": "p1",
+            "project_name": "Product",
+            "team_id": "t1",
+            "team_name": "Team",
+            "encrypted_pat": "encrypted",
+            "created_at": "now",
+            "updated_at": "now",
+        }
+    )
+    plan = PlanService(PlanStore(database)).create_from_story(story(), source(), [])
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE plan_runs")
+        connection.execute("DROP TABLE copilot_connection")
+        connection.execute("PRAGMA user_version = 1")
+
+    upgraded = PlanService(PlanStore(database))
+    assert upgraded.get(plan.id).workItem.title == "View employees"
+    assert connection_store.get()["encrypted_pat"] == "encrypted"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
 
 
 def test_internal_creation_is_idempotent_per_source_and_survives_restart(
@@ -138,6 +171,12 @@ def test_api_persists_edits_finalization_reopen_and_deletion(tmp_path: Path) -> 
     plan_id = create_review_plan(service)
     app.dependency_overrides[get_plan_service] = lambda: service
 
+    class MissingCopilot:
+        def active_pat(self):
+            raise PlanError("Copilot not configured.", 409, "COPILOT_NOT_CONFIGURED")
+
+    app.dependency_overrides[get_copilot_connection_service] = MissingCopilot
+
     try:
         with TestClient(app) as client:
             initial = client.get(f"/api/plans/{plan_id}")
@@ -147,7 +186,7 @@ def test_api_persists_edits_finalization_reopen_and_deletion(tmp_path: Path) -> 
             assert client.get("/api/plans").json()[0]["id"] == plan_id
             assert (
                 client.post("/api/plans", json={"workItemId": 42}).json()["code"]
-                == "PLANNER_NOT_READY"
+                == "COPILOT_NOT_CONFIGURED"
             )
 
             request = {
@@ -206,6 +245,7 @@ def test_api_persists_edits_finalization_reopen_and_deletion(tmp_path: Path) -> 
             assert missing.json()["code"] == "PLAN_NOT_FOUND"
     finally:
         app.dependency_overrides.pop(get_plan_service, None)
+        app.dependency_overrides.pop(get_copilot_connection_service, None)
 
 
 def test_finalization_rejects_unreviewed_or_empty_plans(tmp_path: Path) -> None:
@@ -230,3 +270,107 @@ def test_finalization_rejects_unreviewed_or_empty_plans(tmp_path: Path) -> None:
             assert incomplete.json()["code"] == "PLAN_INCOMPLETE"
     finally:
         app.dependency_overrides.pop(get_plan_service, None)
+
+
+def test_plan_create_and_answers_are_durable_and_idempotent(tmp_path: Path) -> None:
+    service = PlanService(PlanStore(tmp_path / "new-plans.db"))
+
+    class Copilot:
+        def active_pat(self):
+            return "private-pat"
+
+    class AdoClient:
+        async def get_work_items(self, ids):
+            return [
+                {
+                    "id": ids[0],
+                    "fields": {
+                        "System.Title": "View employees",
+                        "System.WorkItemType": "User Story",
+                        "System.ChangedDate": "2026-09-20T12:00:00Z",
+                    },
+                }
+            ]
+
+    class Ado:
+        def active(self):
+            return (
+                {
+                    "organization": "contoso",
+                    "project_id": "project-1",
+                    "project_name": "Product",
+                    "team_id": "team-1",
+                },
+                AdoClient(),
+            )
+
+    app.dependency_overrides[get_plan_service] = lambda: service
+    app.dependency_overrides[get_copilot_connection_service] = Copilot
+    app.dependency_overrides[get_connection_service_dependency] = Ado
+    try:
+        with TestClient(app) as client:
+            created = client.post("/api/plans", json={"workItemId": 42})
+            assert created.status_code == 201
+            plan_id = created.json()["id"]
+            assert client.post("/api/plans", json={"workItemId": 42}).status_code == 200
+            queued = client.get(f"/api/plans/{plan_id}/run")
+            assert queued.json()["status"] == "queued"
+
+            run = service.store.claim_next()
+            service.project_graph(
+                plan_id,
+                run["id"],
+                {
+                    "analysis": {
+                        "goal": "Show employees",
+                        "facts": [{"statement": "Title", "source": "title"}],
+                        "gaps": [],
+                        "assumptions": [],
+                        "questions": [],
+                    },
+                    "current_round": {
+                        "id": "round-1",
+                        "questions": [
+                            {
+                                "id": "r1-q1",
+                                "prompt": "Who uses this?",
+                                "rationale": "Clarify audience",
+                            }
+                        ],
+                    },
+                },
+            )
+            payload = {
+                "expectedVersion": 2,
+                "roundId": "round-1",
+                "answers": [{"questionId": "r1-q1", "value": "HR", "unknown": False}],
+            }
+            submitted = client.post(
+                f"/api/plans/{plan_id}/clarifications", json=payload
+            )
+            assert submitted.status_code == 200
+            assert (
+                submitted.json()["clarificationRounds"][0]["answers"][0]["value"]
+                == "HR"
+            )
+            duplicate = client.post(
+                f"/api/plans/{plan_id}/clarifications", json=payload
+            )
+            assert duplicate.status_code == 200
+            assert duplicate.json()["version"] == submitted.json()["version"]
+            assert client.get(f"/api/plans/{plan_id}/run").json()["status"] == "queued"
+            bad = client.post(
+                f"/api/plans/{plan_id}/clarifications",
+                json={
+                    "expectedVersion": 3,
+                    "roundId": "round-1",
+                    "answers": [
+                        {"questionId": "different", "value": "HR", "unknown": False}
+                    ],
+                },
+            )
+            assert bad.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_plan_service, None)
+        app.dependency_overrides.pop(get_copilot_connection_service, None)
+        app.dependency_overrides.pop(get_connection_service_dependency, None)

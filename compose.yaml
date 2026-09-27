@@ -68,6 +68,45 @@ services:
         max-size: 10m
         max-file: "3"
 
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.planning.worker"]
+    environment:
+      DATABASE_URL: sqlite:////data/sdev-aix.db
+      CREDENTIAL_ENCRYPTION_KEY_FILE: /data/credential_encryption_key
+      COPILOT_DATA_PATH: /data/copilot
+      COPILOT_MODEL: ${COPILOT_MODEL:-auto}
+      COPILOT_TIMEOUT_SECONDS: ${COPILOT_TIMEOUT_SECONDS:-90}
+    volumes:
+      - backend-data:/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 512m
+    cpus: 1.0
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
   frontend:
     build:
       context: ./frontend

@@ -34,3 +34,12 @@ export type SaveAdoConnectionRequest = ListAdoTeamsRequest & {
   team_id: string
   team_name: string
 }
+
+export const copilotConnectionSummarySchema = z.object({
+  connected: z.boolean(),
+  pat_configured: z.boolean().optional(),
+})
+
+export type CopilotConnectionSummary = z.infer<
+  typeof copilotConnectionSummarySchema
+>

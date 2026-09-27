@@ -70,14 +70,14 @@ def initialize_plan_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(database_path, timeout=5)) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 1:
+        if version > 3:
             raise RuntimeError("This database requires a newer sdev-aix version")
-        if version == 1:
+        if version == 3:
             return
         with connection:
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 3:
                 raise RuntimeError("This database requires a newer sdev-aix version")
             if version < 1:
                 connection.execute(
@@ -101,4 +101,38 @@ def initialize_plan_schema(database_path: Path) -> None:
                     "CREATE INDEX IF NOT EXISTS plans_updated_at_idx "
                     "ON plans(updated_at DESC)"
                 )
-                connection.execute("PRAGMA user_version = 1")
+            if version < 2:
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS copilot_connection (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        encrypted_pat TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS plan_runs (
+                        id TEXT PRIMARY KEY,
+                        plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+                        action TEXT NOT NULL CHECK (action IN ('analyze', 'resume')),
+                        round_id TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL CHECK (
+                            status IN ('queued', 'running', 'awaiting_input',
+                                'ready_for_draft', 'failed')
+                        ),
+                        error_code TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        UNIQUE (plan_id, action, round_id)
+                    )
+                    """
+                )
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS plan_runs_status_idx "
+                    "ON plan_runs(status, created_at)"
+                )
+            if version < 3:
+                connection.execute("PRAGMA user_version = 3")

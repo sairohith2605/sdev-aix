@@ -16,10 +16,12 @@ import {
 import {
   createPlanRequestSchema,
   planSchema,
+  planRunSchema,
   persistPlanRequestSchema,
   requestPlanRevisionRequestSchema,
   submitClarificationAnswersRequestSchema,
   type Plan,
+  type PlanRun,
 } from "@/features/plans/model"
 import type {
   CreatePlanRequest,
@@ -289,6 +291,31 @@ export function getPlansUrl(): URL {
 
 export function getPlanUrl(planId: string): URL {
   return new URL(`${getPlansUrl()}/${planId}`, window.location.origin)
+}
+
+export function getPlanRunUrl(planId: string): URL {
+  return new URL(`${getPlanUrl(planId)}/run`, window.location.origin)
+}
+
+export async function fetchPlanRun(
+  planId: string,
+  signal?: AbortSignal
+): Promise<PlanRun> {
+  const response = await fetch(getPlanRunUrl(planId), {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+  if (!response.ok) throw parseApiError(response, await response.json())
+  return planRunSchema.parse(await response.json())
+}
+
+export async function retryPlanRun(planId: string): Promise<PlanRun> {
+  const response = await fetch(new URL(`${getPlanRunUrl(planId)}/retry`), {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  })
+  if (!response.ok) throw parseApiError(response, await response.json())
+  return planRunSchema.parse(await response.json())
 }
 
 export function getMockPlansUrl(): string {

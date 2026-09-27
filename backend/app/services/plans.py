@@ -7,6 +7,8 @@ from uuid import uuid4
 from app.errors import PlanError
 from app.planning.models import (
     Plan,
+    PlanAnalysis,
+    PlanAnswer,
     PlanClarificationRound,
     PlanMessage,
     PlanQuestion,
@@ -15,6 +17,7 @@ from app.planning.models import (
     PlanVersionRequest,
     PlanWorkItem,
     SavePlanRequest,
+    SubmitClarificationsRequest,
 )
 from app.planning.store import PlanStore
 
@@ -39,7 +42,12 @@ class PlanService:
         return plan
 
     def create_from_story(
-        self, work_item: dict, source: PlanSource, questions: list[PlanQuestion]
+        self,
+        work_item: dict,
+        source: PlanSource,
+        questions: list[PlanQuestion],
+        *,
+        enqueue_analysis: bool = False,
     ) -> Plan:
         source = source.model_copy(
             update={"organization": source.organization.casefold()}
@@ -88,7 +96,7 @@ class PlanService:
             updatedAt=now,
             finalizedAt=None,
         )
-        if self.store.create(plan):
+        if self.store.create(plan, enqueue_analysis=enqueue_analysis):
             return plan
         existing = self.store.find_by_source(
             source.organization, source.projectId, snapshot.id
@@ -98,6 +106,162 @@ class PlanService:
                 "Could not save this plan. Try again.", 409, "PLAN_CREATE_CONFLICT"
             )
         return existing
+
+    def submit_clarifications(
+        self, plan_id: str, request: SubmitClarificationsRequest
+    ) -> Plan:
+        plan = self.get(plan_id)
+        round_index = next(
+            (
+                i
+                for i, item in enumerate(plan.clarificationRounds)
+                if item.id == request.roundId
+            ),
+            None,
+        )
+        if plan.status != "clarifying" or round_index is None:
+            raise PlanError(
+                "This plan is not accepting answers.", 409, "PLAN_NOT_CLARIFYING"
+            )
+        round_ = plan.clarificationRounds[round_index]
+        question_ids = [question.id for question in round_.questions]
+        answer_ids = [answer.questionId for answer in request.answers]
+        if len(answer_ids) != len(question_ids) or set(answer_ids) != set(question_ids):
+            raise PlanError("Answer every question once.", 422, "INVALID_PLAN_ANSWERS")
+        answers = [
+            answer.model_copy(
+                update={"value": "" if answer.unknown else answer.value.strip()}
+            )
+            for answer in request.answers
+        ]
+        if round_.submittedAt is not None:
+            if round_.answers == answers:
+                return plan
+            raise PlanError("This round was already submitted.", 409, "ROUND_SUBMITTED")
+        self._check_version(plan, request.expectedVersion)
+        if round_index != len(plan.clarificationRounds) - 1:
+            raise PlanError(
+                "This round is no longer current.", 409, "ROUND_NOT_CURRENT"
+            )
+        now = datetime.now(UTC)
+        rounds = list(plan.clarificationRounds)
+        rounds[round_index] = round_.model_copy(
+            update={"answers": answers, "submittedAt": now}
+        )
+        updated = plan.model_copy(
+            update={
+                "clarificationRounds": rounds,
+                "conversation": [
+                    *plan.conversation,
+                    PlanMessage(
+                        id=f"user-{round_.id}",
+                        role="user",
+                        content="\n".join(
+                            f"{answer.questionId}: "
+                            f"{'I don’t know' if answer.unknown else answer.value}"
+                            for answer in answers
+                        ),
+                        createdAt=now,
+                    ),
+                ],
+                "updatedAt": now,
+                "version": plan.version + 1,
+            }
+        )
+        if not self.store.submit_answers(updated, plan.version, round_.id):
+            self._check_version(self.get(plan_id), plan.version)
+            raise PlanError("Plan not found.", 404, "PLAN_NOT_FOUND")
+        return updated
+
+    def project_graph(self, plan_id: str, run_id: str, state: dict) -> Plan:
+        plan = self.get(plan_id)
+        now = datetime.now(UTC)
+        round_data = state.get("current_round")
+        rounds = list(plan.clarificationRounds)
+        conversation = list(plan.conversation)
+        if round_data and not any(item.id == round_data["id"] for item in rounds):
+            rounds.append(
+                PlanClarificationRound(
+                    id=round_data["id"],
+                    questions=[
+                        PlanQuestion.model_validate(question)
+                        for question in round_data["questions"]
+                    ],
+                    answers=[],
+                    createdAt=now,
+                    submittedAt=None,
+                )
+            )
+            answer_history = state.get("answer_history", [])
+            if answer_history:
+                previous = answer_history[-1]
+                rounds = [
+                    item.model_copy(
+                        update={
+                            "answers": [
+                                PlanAnswer.model_validate(answer)
+                                for answer in previous["answers"]
+                            ],
+                            "submittedAt": item.submittedAt or now,
+                        }
+                    )
+                    if item.id == previous["roundId"]
+                    else item
+                    for item in rounds
+                ]
+                user_message_id = f"user-{previous['roundId']}"
+                if not any(message.id == user_message_id for message in conversation):
+                    conversation.append(
+                        PlanMessage(
+                            id=user_message_id,
+                            role="user",
+                            content="\n".join(
+                                "{}: {}".format(
+                                    answer["questionId"],
+                                    "I don’t know"
+                                    if answer["unknown"]
+                                    else answer["value"],
+                                )
+                                for answer in previous["answers"]
+                            ),
+                            createdAt=now,
+                        )
+                    )
+            conversation.append(
+                PlanMessage(
+                    id=f"agent-{round_data['id']}",
+                    role="agent",
+                    content="I reviewed the story. Please answer these questions "
+                    "so I can prepare a useful plan.",
+                    createdAt=now,
+                )
+            )
+        elif not round_data:
+            message_id = f"agent-ready-{len(rounds)}"
+            if not any(message.id == message_id for message in conversation):
+                conversation.append(
+                    PlanMessage(
+                        id=message_id,
+                        role="agent",
+                        content="I have enough context to prepare a provisional draft.",
+                        createdAt=now,
+                    )
+                )
+        updated = plan.model_copy(
+            update={
+                "analysis": PlanAnalysis.model_validate(state["analysis"]),
+                "clarificationRounds": rounds,
+                "conversation": conversation,
+                "updatedAt": now,
+                "version": plan.version + 1,
+            }
+        )
+        status = "awaiting_input" if round_data else "ready_for_draft"
+        if not self.store.finish_run(updated, plan.version, run_id, status):
+            raise PlanError(
+                "Plan changed during analysis.", 409, "PLAN_VERSION_CONFLICT"
+            )
+        return updated
 
     @staticmethod
     def _check_version(plan: Plan, expected_version: int) -> None:

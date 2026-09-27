@@ -52,6 +52,10 @@ class Settings(BaseSettings):
             return self.copilot_data_path
         return Path(__file__).resolve().parents[1] / self.copilot_data_path
 
+    @property
+    def graph_checkpoint_path(self) -> Path:
+        return self.sqlite_path.with_name("langgraph-checkpoints.db")
+
 
 @lru_cache
 def get_settings() -> Settings:

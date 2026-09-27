@@ -3,7 +3,9 @@ import { z } from "zod"
 import {
   adoConnectionSummarySchema,
   adoResourcesSchema,
+  copilotConnectionSummarySchema,
   type AdoConnectionSummary,
+  type CopilotConnectionSummary,
   type ListAdoTeamsRequest,
   type SaveAdoConnectionRequest,
   type TestAdoConnectionRequest,
@@ -11,6 +13,7 @@ import {
 import { parseApiError } from "@/config/api"
 
 const connectionsUrl = "/api/connections/azure-devops"
+const copilotUrl = "/api/connections/github-copilot"
 
 async function readError(response: Response): Promise<never> {
   let body: unknown
@@ -96,5 +99,43 @@ export async function disconnectAdo(signal?: AbortSignal): Promise<void> {
     signal,
     headers: { Accept: "application/json" },
   })
+  if (!response.ok) await readError(response)
+}
+
+export async function getCopilotConnection(
+  signal?: AbortSignal
+): Promise<CopilotConnectionSummary> {
+  const response = await fetch(copilotUrl, {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+  if (!response.ok) await readError(response)
+  return copilotConnectionSummarySchema.parse(await response.json())
+}
+
+export async function testCopilotConnection(pat: string): Promise<void> {
+  const response = await fetch(`${copilotUrl}/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ pat }),
+  })
+  if (!response.ok) await readError(response)
+  z.object({ connected: z.literal(true) }).parse(await response.json())
+}
+
+export async function saveCopilotConnection(
+  pat: string
+): Promise<CopilotConnectionSummary> {
+  const response = await fetch(copilotUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ pat }),
+  })
+  if (!response.ok) await readError(response)
+  return copilotConnectionSummarySchema.parse(await response.json())
+}
+
+export async function disconnectCopilot(): Promise<void> {
+  const response = await fetch(copilotUrl, { method: "DELETE" })
   if (!response.ok) await readError(response)
 }

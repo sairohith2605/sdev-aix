@@ -22,7 +22,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 
 import { isMockApiEnabled } from "@/config/mock-mode"
-import { getAdoConnection } from "@/features/connections/api"
+import {
+  getAdoConnection,
+  getCopilotConnection,
+} from "@/features/connections/api"
 import { createPlan, getPlans } from "@/features/plans/api"
 import type { Plan } from "@/features/plans/model"
 import { getWorkItem } from "@/features/work-items/api"
@@ -252,6 +255,11 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
     queryFn: ({ signal }) => getAdoConnection(signal),
     enabled: !mockMode,
   })
+  const { data: copilot } = useQuery({
+    queryKey: ["copilot-connection"],
+    queryFn: ({ signal }) => getCopilotConnection(signal),
+    enabled: !mockMode,
+  })
   const existingPlan = plans?.find(
     (plan) =>
       plan.workItemId === item.id &&
@@ -329,7 +337,8 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
               <Button
                 className="w-full"
                 disabled={
-                  createPlanMutation.isPending || (!mockMode && !existingPlan)
+                  createPlanMutation.isPending ||
+                  (!mockMode && !existingPlan && !copilot?.connected)
                 }
                 onClick={() => {
                   if (existingPlan) {
@@ -356,20 +365,24 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
                     "View plan"
                   )
                 ) : !mockMode ? (
-                  "Planning agent coming soon"
+                  "Create plan"
                 ) : (
                   "Create plan"
                 )}
               </Button>
-              {!mockMode && !existingPlan ? (
+              {!mockMode && !existingPlan && !copilot?.connected ? (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Plan creation will be available when the LangGraph workflow is
-                  connected.
+                  <Link className="underline" to="/connections">
+                    Connect GitHub Copilot
+                  </Link>{" "}
+                  to start planning.
                 </p>
               ) : null}
               {createPlanMutation.isError ? (
                 <p className="mt-2 text-xs text-destructive" role="alert">
-                  Could not create the plan. Try again.
+                  {createPlanMutation.error instanceof Error
+                    ? createPlanMutation.error.message
+                    : "Could not create the plan. Try again."}
                 </p>
               ) : null}
             </CardContent>

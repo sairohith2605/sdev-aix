@@ -69,11 +69,30 @@ class PlanRevision(BaseModel):
     createdAt: datetime
 
 
+class PlanFact(BaseModel):
+    statement: str
+    source: Literal["title", "description", "acceptanceCriteria"]
+
+
+class PlanAnalysisQuestion(BaseModel):
+    prompt: str
+    rationale: str
+
+
+class PlanAnalysis(BaseModel):
+    goal: str
+    facts: list[PlanFact]
+    gaps: list[str]
+    assumptions: list[str]
+    questions: list[PlanAnalysisQuestion]
+
+
 class Plan(BaseModel):
     id: str
     workItemId: int = Field(gt=0)
     source: PlanSource
     workItem: PlanWorkItem
+    analysis: PlanAnalysis | None = None
     status: Literal["clarifying", "review", "finalized"]
     clarificationRounds: list[PlanClarificationRound]
     conversation: list[PlanMessage]
@@ -102,3 +121,8 @@ class SavePlanRequest(BaseModel):
 
 class PlanVersionRequest(BaseModel):
     expectedVersion: int = Field(ge=1)
+
+
+class SubmitClarificationsRequest(PlanVersionRequest):
+    roundId: str = Field(min_length=1)
+    answers: list[PlanAnswer]

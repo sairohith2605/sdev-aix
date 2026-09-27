@@ -4,6 +4,7 @@ from app.db import ConnectionStore
 from app.errors import ConnectorError
 from app.planning.store import PlanStore
 from app.services.connections import ConnectionService
+from app.services.copilot_connections import CopilotConnectionService
 from app.services.plans import PlanService
 from app.services.work_items import WorkItemService
 
@@ -48,6 +49,10 @@ def get_work_item_service() -> WorkItemService:
 
 def get_plan_service() -> PlanService:
     return PlanService(PlanStore(get_settings().sqlite_path))
+
+
+def get_copilot_connection_service() -> CopilotConnectionService:
+    return CopilotConnectionService(get_settings())
 
 
 def get_connection_service_dependency() -> ConnectionService:

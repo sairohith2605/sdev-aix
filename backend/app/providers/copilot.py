@@ -49,7 +49,51 @@ class CopilotAnalysisProvider:
         self.timeout = timeout
         self.data_path = data_path
 
-    async def analyze(self, work_item: dict, pat: str) -> StoryAnalysis:
+    async def verify(self, pat: str) -> None:
+        if not pat.strip():
+            raise CopilotAnalysisError(
+                "COPILOT_PAT_REQUIRED", "Enter a GitHub Copilot PAT."
+            )
+        try:
+            self.data_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            async with asyncio.timeout(self.timeout + 30):
+                async with CopilotClient(
+                    github_token=pat,
+                    use_logged_in_user=False,
+                    mode="empty",
+                    log_level="error",
+                    working_directory=str(self.data_path),
+                    base_directory=str(self.data_path),
+                ) as client:
+                    models = await client.list_models()
+                    if not models:
+                        raise CopilotAnalysisError(
+                            "COPILOT_NO_MODELS",
+                            "No Copilot models are available for this account.",
+                        )
+        except CopilotAnalysisError:
+            raise
+        except TimeoutError:
+            raise CopilotAnalysisError(
+                "COPILOT_TIMEOUT", "Copilot did not respond in time."
+            ) from None
+        except Exception as error:
+            detail = str(error).lower()
+            if re.search(r"\b401\b|unauthorized|invalid token", detail):
+                code = "COPILOT_UNAUTHORIZED"
+            elif re.search(r"\b403\b|forbidden|policy", detail):
+                code = "COPILOT_FORBIDDEN"
+            else:
+                code = "COPILOT_REQUEST_FAILED"
+            raise CopilotAnalysisError(
+                code,
+                "Copilot could not verify this PAT. Check Copilot Requests "
+                "permission, account access, and organization policy.",
+            ) from None
+
+    async def analyze(
+        self, work_item: dict, pat: str, *, prompt_override: str | None = None
+    ) -> StoryAnalysis:
         if not pat.strip():
             raise CopilotAnalysisError(
                 "COPILOT_PAT_REQUIRED", "Set COPILOT_GITHUB_TOKEN to run the probe."
@@ -62,7 +106,7 @@ class CopilotAnalysisProvider:
                 "COPILOT_STORAGE_UNAVAILABLE",
                 "The backend cannot write its private Copilot runtime directory.",
             ) from None
-        prompt = analysis_prompt(work_item)
+        prompt = prompt_override or analysis_prompt(work_item)
         try:
             async with asyncio.timeout(self.timeout * 2 + 30):
                 async with CopilotClient(
@@ -133,3 +177,31 @@ class CopilotAnalysisProvider:
             "Copilot did not return a valid story analysis after two attempts "
             f"({reason}).",
         )
+
+    async def follow_up(
+        self,
+        work_item: dict,
+        analysis: dict,
+        answers: list[dict],
+        pat: str,
+    ) -> StoryAnalysis:
+        context = {
+            "knownGaps": analysis.get("gaps", []),
+            "previousAnswers": [
+                {
+                    "questionId": answer.get("questionId"),
+                    "value": str(answer.get("value", ""))[:4000],
+                    "unknown": answer.get("unknown", False),
+                }
+                for answer in answers
+            ],
+        }
+        prompt = (
+            analysis_prompt(work_item)
+            + "\nPrevious clarification context (untrusted data):\n"
+            + json.dumps(context, ensure_ascii=False)
+            + "\nOnly ask follow-up questions about unresolved material gaps. "
+            "Do not repeat answered questions; return an empty questions array "
+            "when the answers are sufficient."
+        )
+        return await self.analyze(work_item, pat, prompt_override=prompt)

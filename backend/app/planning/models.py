@@ -125,6 +125,10 @@ class PlanVersionRequest(BaseModel):
     expectedVersion: int = Field(ge=1)
 
 
+class PlanRevisionRequest(PlanVersionRequest):
+    feedback: str = Field(min_length=1, max_length=4000)
+
+
 class SubmitClarificationsRequest(PlanVersionRequest):
     roundId: str = Field(min_length=1)
     answers: list[PlanAnswer]

@@ -107,7 +107,7 @@ def test_plan_migration_preserves_connection_and_is_repeatable(tmp_path: Path) -
     assert store.list() == []
     assert connection_store.get()["encrypted_pat"] == "encrypted-existing-pat"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
 
 
 def test_migrating_v1_plan_keeps_snapshot_and_ado_connection(tmp_path: Path) -> None:
@@ -135,7 +135,48 @@ def test_migrating_v1_plan_keeps_snapshot_and_ado_connection(tmp_path: Path) -> 
     assert upgraded.get(plan.id).workItem.title == "View employees"
     assert connection_store.get()["encrypted_pat"] == "encrypted"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+
+
+def test_migrating_v5_preserves_existing_runs(tmp_path: Path) -> None:
+    database = tmp_path / "v5.db"
+    service = PlanService(PlanStore(database))
+    plan = service.create_from_story(story(), source(), [], enqueue_analysis=True)
+    with sqlite3.connect(database) as connection:
+        run = connection.execute(
+            "SELECT id, created_at, updated_at FROM plan_runs WHERE plan_id = ?",
+            (plan.id,),
+        ).fetchone()
+        connection.execute("DROP TABLE plan_runs")
+        connection.execute(
+            """CREATE TABLE plan_runs (
+                id TEXT PRIMARY KEY,
+                plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+                action TEXT NOT NULL CHECK (action IN ('analyze', 'resume')),
+                round_id TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL CHECK (
+                    status IN (
+                        'queued', 'running', 'awaiting_input',
+                        'ready_for_draft', 'failed'
+                    )
+                ),
+                error_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (plan_id, action, round_id)
+            )"""
+        )
+        connection.execute(
+            "INSERT INTO plan_runs (id, plan_id, action, round_id, status, "
+            "created_at, updated_at) VALUES (?, ?, 'analyze', '', 'queued', ?, ?)",
+            (run[0], plan.id, run[1], run[2]),
+        )
+        connection.execute("PRAGMA user_version = 5")
+    upgraded = PlanStore(database)
+    assert upgraded.latest_run(plan.id)["id"] == run[0]
+    assert upgraded.latest_run(plan.id)["status"] == "queued"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
 
 
 def test_internal_creation_is_idempotent_per_source_and_survives_restart(

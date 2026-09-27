@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import uuid4
@@ -13,6 +14,8 @@ from app.planning.models import (
     PlanClarificationRound,
     PlanMessage,
     PlanQuestion,
+    PlanRevision,
+    PlanRevisionRequest,
     PlanSection,
     PlanSource,
     PlanVersionRequest,
@@ -281,8 +284,114 @@ class PlanService:
     def _persist(self, plan: Plan, previous_version: int) -> Plan:
         if not self.store.replace(plan, previous_version):
             self._check_version(self.get(plan.id), previous_version)
+            self._check_generation_active(plan.id)
             raise PlanError("Plan not found.", 404, "PLAN_NOT_FOUND")
         return plan
+
+    def _check_generation_active(self, plan_id: str) -> None:
+        if self.store.active_generation(plan_id):
+            raise PlanError(
+                "A draft or revision is already being generated.",
+                409,
+                "PLAN_RUN_ACTIVE",
+            )
+
+    def request_generation(
+        self,
+        plan_id: str,
+        request: PlanVersionRequest | PlanRevisionRequest,
+        action: str,
+    ) -> dict:
+        plan = self.get(plan_id)
+        feedback = (
+            request.feedback.strip() if isinstance(request, PlanRevisionRequest) else ""
+        )
+        if action == "draft" and (plan.status != "clarifying" or plan.revision != 0):
+            raise PlanError(
+                "This plan is not ready for a draft.", 409, "PLAN_NOT_READY"
+            )
+        if action == "revise" and plan.status != "review":
+            raise PlanError(
+                "Only provisional plans can be revised.", 409, "PLAN_NOT_REVIEWABLE"
+            )
+        if action == "revise" and not feedback:
+            raise PlanError("Add revision feedback.", 422, "PLAN_FEEDBACK_REQUIRED")
+        if action == "revise" and (
+            any(len(items) > 6 for items in (plan.functionalPlan, plan.technicalPlan))
+            or any(
+                len(section.content) > 8_000
+                for section in [*plan.functionalPlan, *plan.technicalPlan]
+            )
+        ):
+            raise PlanError(
+                "Shorten the plan sections before requesting a revision.",
+                422,
+                "PLAN_TOO_LARGE",
+            )
+        run = self.store.enqueue_generation(
+            plan_id, request.expectedVersion, action, feedback
+        )
+        if run is None:
+            self._check_version(self.get(plan_id), request.expectedVersion)
+            self._check_generation_active(plan_id)
+            raise PlanError("Plan is not ready for this action.", 409, "PLAN_NOT_READY")
+        return run
+
+    def project_generation(self, plan_id: str, run: dict, generated) -> Plan:
+        from app.planning.drafting import plan_sections, validate_generation
+
+        plan = self.get(plan_id)
+        if plan.version != run["base_version"]:
+            raise PlanError(
+                "Plan changed during generation.", 409, "PLAN_VERSION_CONFLICT"
+            )
+        validate_generation(generated, plan, revision=run["action"] == "revise")
+        functional, technical = plan_sections(generated)
+        now = datetime.now(UTC)
+        revision = plan.revision + 1
+        feedback = (
+            json.loads(run["input_payload"])["feedback"]
+            if run["action"] == "revise"
+            else "Initial provisional draft"
+        )
+        updated = plan.model_copy(
+            update={
+                "status": "review",
+                "functionalPlan": functional,
+                "technicalPlan": technical,
+                "revision": revision,
+                "revisionHistory": [
+                    *plan.revisionHistory,
+                    PlanRevision(
+                        revision=revision,
+                        feedback=feedback,
+                        functionalPlan=functional,
+                        technicalPlan=technical,
+                        createdAt=now,
+                    ),
+                ],
+                "conversation": [
+                    *plan.conversation,
+                    *(
+                        [_message("user", feedback, now)]
+                        if run["action"] == "revise"
+                        else []
+                    ),
+                    _message(
+                        "agent",
+                        f"Provisional revision {revision} is ready for review.",
+                        now,
+                    ),
+                ],
+                "version": plan.version + 1,
+                "updatedAt": now,
+            }
+        )
+        if not self.store.finish_generation(updated, plan.version, run["id"]):
+            raise PlanError(
+                "Plan changed during generation.", 409, "PLAN_VERSION_CONFLICT"
+            )
+        return updated
 
     @staticmethod
     def _validate_sections(current: list[PlanSection], next: list[PlanSection]) -> None:
@@ -296,6 +405,7 @@ class PlanService:
     def save(self, plan_id: str, request: SavePlanRequest) -> Plan:
         plan = self.get(plan_id)
         self._check_version(plan, request.expectedVersion)
+        self._check_generation_active(plan_id)
         if plan.status != "review":
             raise PlanError(
                 "Only provisional plans can be edited.", 409, "PLAN_READ_ONLY"
@@ -306,6 +416,13 @@ class PlanService:
             )
         self._validate_sections(plan.functionalPlan, request.functionalPlan)
         self._validate_sections(plan.technicalPlan, request.technicalPlan)
+        if any(
+            len(section.content) > 8_000
+            for section in [*request.functionalPlan, *request.technicalPlan]
+        ):
+            raise PlanError(
+                "A plan section exceeds 8,000 characters.", 422, "PLAN_TOO_LARGE"
+            )
         history = [
             revision.model_copy(
                 update={
@@ -331,6 +448,7 @@ class PlanService:
     def finalize(self, plan_id: str, request: PlanVersionRequest) -> Plan:
         plan = self.get(plan_id)
         self._check_version(plan, request.expectedVersion)
+        self._check_generation_active(plan_id)
         if plan.status != "review":
             raise PlanError(
                 "Only reviewed plans can be finalized.", 409, "PLAN_NOT_REVIEWABLE"
@@ -374,6 +492,7 @@ class PlanService:
     def reopen(self, plan_id: str, request: PlanVersionRequest) -> Plan:
         plan = self.get(plan_id)
         self._check_version(plan, request.expectedVersion)
+        self._check_generation_active(plan_id)
         if plan.status != "finalized":
             raise PlanError(
                 "Only finalized plans can be reopened.", 409, "PLAN_NOT_FINALIZED"

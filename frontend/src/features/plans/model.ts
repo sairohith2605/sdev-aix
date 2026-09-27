@@ -144,17 +144,26 @@ export const planRunSchema = z.object({
     "running",
     "awaiting_input",
     "ready_for_draft",
+    "completed",
     "failed",
   ]),
   errorCode: z.string().nullable(),
+  action: z.enum(["analyze", "resume", "draft", "revise"]).optional(),
+  baseVersion: z.number().int().positive().nullable().optional(),
+  feedback: z.string().nullable().optional(),
 })
 
 export type PlanRun = z.infer<typeof planRunSchema>
 
 export const requestPlanRevisionRequestSchema = z.object({
+  expectedVersion: z.number().int().positive().optional(),
   feedback: z.string().trim().min(1).max(4000),
   functionalPlan: z.array(planSectionSchema),
   technicalPlan: z.array(planSectionSchema),
+})
+
+export const requestPlanDraftRequestSchema = z.object({
+  expectedVersion: z.number().int().positive(),
 })
 
 export const savePlanRequestSchema = z.object({

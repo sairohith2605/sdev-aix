@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
@@ -93,7 +94,11 @@ class PlanStore:
                     """
                     UPDATE plans SET status = ?, updated_at = ?,
                         version = ?, payload = ?
-                    WHERE id = ? AND version = ?
+                    WHERE id = ? AND version = ? AND NOT EXISTS (
+                        SELECT 1 FROM plan_runs WHERE plan_id = ?
+                        AND action IN ('draft', 'revise')
+                        AND status IN ('queued', 'running')
+                    )
                     """,
                     (
                         plan.status,
@@ -102,6 +107,7 @@ class PlanStore:
                         plan.model_dump_json(),
                         plan.id,
                         expected_version,
+                        plan.id,
                     ),
                 )
                 return cursor.rowcount == 1
@@ -135,6 +141,97 @@ class PlanStore:
                 (plan_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def active_generation(self, plan_id: str) -> bool:
+        with closing(self.connect()) as connection:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM plan_runs WHERE plan_id = ? "
+                    "AND action IN ('draft', 'revise') "
+                    "AND status IN ('queued', 'running') LIMIT 1",
+                    (plan_id,),
+                ).fetchone()
+                is not None
+            )
+
+    def enqueue_generation(
+        self, plan_id: str, expected_version: int, action: str, feedback: str = ""
+    ) -> dict | None:
+        with closing(self.connect()) as connection:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                active = connection.execute(
+                    "SELECT * FROM plan_runs WHERE plan_id = ? "
+                    "AND action IN ('draft', 'revise') "
+                    "AND status IN ('queued', 'running') LIMIT 1",
+                    (plan_id,),
+                ).fetchone()
+                if active:
+                    if (
+                        active["action"] == action
+                        and active["base_version"] == expected_version
+                        and json.loads(active["input_payload"]).get("feedback", "")
+                        == feedback
+                    ):
+                        return dict(active)
+                    return None
+                row = connection.execute(
+                    "SELECT version, payload FROM plans WHERE id = ?", (plan_id,)
+                ).fetchone()
+                if not row or row["version"] != expected_version:
+                    return None
+                plan = Plan.model_validate_json(row["payload"])
+                latest = connection.execute(
+                    "SELECT action, status FROM plan_runs WHERE plan_id = ? "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (plan_id,),
+                ).fetchone()
+                if action == "draft":
+                    if (
+                        plan.status != "clarifying"
+                        or plan.revision != 0
+                        or any(
+                            round_.submittedAt is None
+                            for round_ in plan.clarificationRounds
+                        )
+                        or not latest
+                        or latest["status"] != "ready_for_draft"
+                    ):
+                        return None
+                    if connection.execute(
+                        "SELECT 1 FROM plan_runs WHERE plan_id = ? "
+                        "AND action = 'draft' LIMIT 1",
+                        (plan_id,),
+                    ).fetchone():
+                        return None
+                elif action == "revise":
+                    if plan.status != "review" or not feedback.strip():
+                        return None
+                else:
+                    return None
+                run_id = str(uuid4())
+                now = datetime.now(UTC).isoformat()
+                connection.execute(
+                    """INSERT INTO plan_runs
+                       (id, plan_id, action, round_id, status, created_at, updated_at,
+                        base_version, input_payload)
+                       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)""",
+                    (
+                        run_id,
+                        plan_id,
+                        action,
+                        "" if action == "draft" else run_id,
+                        now,
+                        now,
+                        expected_version,
+                        json.dumps({"feedback": feedback}),
+                    ),
+                )
+                return dict(
+                    connection.execute(
+                        "SELECT * FROM plan_runs WHERE id = ?", (run_id,)
+                    ).fetchone()
+                )
 
     def interrupt_running(self) -> None:
         with closing(self.connect()) as connection:
@@ -175,12 +272,24 @@ class PlanStore:
             with connection:
                 connection.execute("BEGIN IMMEDIATE")
                 row = connection.execute(
-                    "SELECT id, status FROM plan_runs WHERE plan_id = ? "
+                    "SELECT id, status, base_version FROM plan_runs WHERE plan_id = ? "
                     "ORDER BY created_at DESC, id DESC LIMIT 1",
                     (plan_id,),
                 ).fetchone()
                 if row is None or row["status"] != "failed":
                     return False
+                if row["base_version"] is not None:
+                    current = connection.execute(
+                        "SELECT version FROM plans WHERE id = ?", (plan_id,)
+                    ).fetchone()
+                    if not current or current["version"] != row["base_version"]:
+                        return False
+                    if connection.execute(
+                        "SELECT 1 FROM plan_runs WHERE plan_id = ? "
+                        "AND status IN ('queued', 'running') LIMIT 1",
+                        (plan_id,),
+                    ).fetchone():
+                        return False
                 return (
                     connection.execute(
                         "UPDATE plan_runs SET status = 'queued', error_code = NULL, "
@@ -217,6 +326,41 @@ class PlanStore:
                     != 1
                 ):
                     raise RuntimeError("Plan run was not active")
+                return True
+
+    def finish_generation(self, plan: Plan, previous_version: int, run_id: str) -> bool:
+        with closing(self.connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    """UPDATE plans SET status = ?, updated_at = ?,
+                           version = ?, payload = ?
+                       WHERE id = ? AND version = ? AND EXISTS (
+                           SELECT 1 FROM plan_runs WHERE id = ? AND plan_id = ?
+                           AND base_version = ? AND status = 'running'
+                       )""",
+                    (
+                        plan.status,
+                        plan.updatedAt.isoformat(),
+                        plan.version,
+                        plan.model_dump_json(),
+                        plan.id,
+                        previous_version,
+                        run_id,
+                        plan.id,
+                        previous_version,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    return False
+                if (
+                    connection.execute(
+                        "UPDATE plan_runs SET status = 'completed', updated_at = ? "
+                        "WHERE id = ? AND status = 'running'",
+                        (datetime.now(UTC).isoformat(), run_id),
+                    ).rowcount
+                    != 1
+                ):
+                    raise RuntimeError("Generation run was not active")
                 return True
 
     def delete(self, plan_id: str) -> bool:

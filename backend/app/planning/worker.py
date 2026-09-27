@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -45,6 +46,21 @@ class PlanningWorker:
             return False
         try:
             plan = self.service.get(job["plan_id"])
+            if job["action"] in {"draft", "revise"}:
+                if plan.version != job["base_version"]:
+                    raise PlanError(
+                        "Plan changed during generation.", 409, "PLAN_VERSION_CONFLICT"
+                    )
+                feedback = (
+                    json.loads(job["input_payload"])["feedback"]
+                    if job["action"] == "revise"
+                    else None
+                )
+                generated = await self.provider.generate(
+                    plan, self.credentials.active_pat(), feedback=feedback
+                )
+                self.service.project_generation(plan.id, job, generated)
+                return True
             config = {"configurable": {"thread_id": plan.id}}
             snapshot = await graph.aget_state(config)
             values = snapshot.values or {}

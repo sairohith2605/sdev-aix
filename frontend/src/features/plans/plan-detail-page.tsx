@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
+import { isMockApiEnabled } from "@/config/mock-mode"
 import {
   approvePlan,
   generateDraft,
@@ -140,6 +141,7 @@ function PlanDetailHeader({
 
 function ClarificationFlow({
   plan,
+  agentAvailable,
   currentRound,
   answers,
   error,
@@ -152,6 +154,7 @@ function ClarificationFlow({
   onGenerateDraft,
 }: {
   plan: Plan
+  agentAvailable: boolean
   currentRound: Plan["clarificationRounds"][number] | undefined
   answers: Record<string, { value: string; unknown: boolean }>
   error: string | null
@@ -171,8 +174,9 @@ function ClarificationFlow({
             Clarify Work
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Answer what you can. Mark uncertain details as unknown; the mock
-            agent may ask a follow-up instead of inventing an answer.
+            {agentAvailable
+              ? "Answer what you can. Mark uncertain details as unknown; the mock agent may ask a follow-up instead of inventing an answer."
+              : "The agent workflow is not connected yet. Saved plan details remain available here."}
           </p>
         </div>
 
@@ -201,7 +205,9 @@ function ClarificationFlow({
                       {question.rationale}
                     </p>
                     <Textarea
-                      disabled={answer.unknown || isSubmitting}
+                      disabled={
+                        answer.unknown || isSubmitting || !agentAvailable
+                      }
                       id={inputId}
                       onChange={(event) =>
                         onAnswerChange(question.id, event.target.value)
@@ -212,7 +218,7 @@ function ClarificationFlow({
                     <div className="flex items-center gap-2">
                       <Checkbox
                         checked={answer.unknown}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !agentAvailable}
                         id={unknownId}
                         onCheckedChange={(checked) =>
                           onUnknownChange(question.id, checked === true)
@@ -233,7 +239,10 @@ function ClarificationFlow({
                   {error}
                 </p>
               ) : null}
-              <Button disabled={isSubmitting} onClick={onSubmitAnswers}>
+              <Button
+                disabled={isSubmitting || !agentAvailable}
+                onClick={onSubmitAnswers}
+              >
                 {isSubmitting ? "Submitting answers…" : "Submit answers"}
               </Button>
             </CardContent>
@@ -247,7 +256,10 @@ function ClarificationFlow({
               <p className="text-sm text-muted-foreground">
                 Review the conversation, then generate a provisional draft.
               </p>
-              <Button disabled={isGeneratingDraft} onClick={onGenerateDraft}>
+              <Button
+                disabled={isGeneratingDraft || !agentAvailable}
+                onClick={onGenerateDraft}
+              >
                 {isGeneratingDraft ? "Generating draft…" : "Generate draft"}
               </Button>
             </CardContent>
@@ -315,6 +327,7 @@ function ConversationHistory({ plan }: { plan: Plan }) {
 
 function ReviewWorkflow({
   plan,
+  agentAvailable,
   isDirty,
   revisionFeedback,
   revisionError,
@@ -328,6 +341,7 @@ function ReviewWorkflow({
   onReopen,
 }: {
   plan: Plan
+  agentAvailable: boolean
   isDirty: boolean
   revisionFeedback: string
   revisionError: string | null
@@ -443,6 +457,7 @@ function ReviewWorkflow({
                     What Should Change?
                   </label>
                   <Textarea
+                    disabled={!agentAvailable}
                     id="revision-feedback"
                     onChange={(event) =>
                       onRevisionFeedbackChange(event.target.value)
@@ -465,6 +480,7 @@ function ReviewWorkflow({
                   ) : null}
                   <Button
                     disabled={
+                      !agentAvailable ||
                       isRequestingRevision ||
                       isDirty ||
                       !revisionFeedback.trim()
@@ -474,6 +490,12 @@ function ReviewWorkflow({
                   >
                     {isRequestingRevision ? "Revising…" : "Request Revision"}
                   </Button>
+                  {!agentAvailable ? (
+                    <p className="text-xs text-muted-foreground">
+                      Agent revisions will be available when LangGraph is
+                      connected.
+                    </p>
+                  ) : null}
                 </CardContent>
               </Card>
             </>
@@ -493,6 +515,7 @@ export function PlanDetailPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const mockMode = isMockApiEnabled()
   const [isExporting, setIsExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -516,6 +539,7 @@ export function PlanDetailPage() {
     data: plan,
     isPending,
     isError,
+    error,
   } = useQuery({
     queryKey: ["plan", planId],
     queryFn: ({ signal }) => getPlan(planId ?? "", signal),
@@ -527,10 +551,11 @@ export function PlanDetailPage() {
       if (!updated) throw new Error("No plan to save")
       const saved = await updatePlan(updated.id, {
         workItemId: updated.workItemId,
+        expectedVersion: updated.version ?? 1,
         functionalPlan: updated.functionalPlan,
         technicalPlan: updated.technicalPlan,
       })
-      await savePlan(saved)
+      if (mockMode) await savePlan(saved)
       return saved
     },
     onSuccess: (savedPlan) => {
@@ -580,7 +605,7 @@ export function PlanDetailPage() {
         functionalPlan: plan.functionalPlan,
         technicalPlan: plan.technicalPlan,
       })
-      await savePlan(updated)
+      if (mockMode) await savePlan(updated)
       return updated
     },
     onSuccess: (updatedPlan) => {
@@ -597,7 +622,7 @@ export function PlanDetailPage() {
   })
 
   const finalizeMutation = useMutation({
-    mutationFn: () => approvePlan(planId ?? ""),
+    mutationFn: () => approvePlan(planId ?? "", plan?.version ?? 1),
     onSuccess: (updatedPlan) => {
       queryClient.setQueryData(["plan", planId], updatedPlan)
       void queryClient.invalidateQueries({ queryKey: ["plans"] })
@@ -607,8 +632,8 @@ export function PlanDetailPage() {
 
   const reopenMutation = useMutation({
     mutationFn: async () => {
-      const updated = await reopenDraft(planId ?? "")
-      await savePlan(updated)
+      const updated = await reopenDraft(planId ?? "", plan?.version ?? 1)
+      if (mockMode) await savePlan(updated)
       return updated
     },
     onSuccess: (updatedPlan) => {
@@ -622,7 +647,7 @@ export function PlanDetailPage() {
     mutationFn: async () => {
       if (!planId) throw new Error("No plan to delete")
       await removePlan(planId)
-      await deletePlan(planId)
+      if (mockMode) await deletePlan(planId)
     },
     onSuccess: () => {
       queryClient.setQueryData(["plans"], (plans: Plan[] | undefined) =>
@@ -665,6 +690,7 @@ export function PlanDetailPage() {
   }
 
   if (isError || !plan) {
+    const notFound = !error || ("status" in error && error.status === 404)
     return (
       <div className="space-y-4">
         <Link
@@ -679,10 +705,14 @@ export function PlanDetailPage() {
         </Link>
         <div className="rounded-lg border border-dashed border-border p-6">
           <h1 className="text-2xl font-semibold tracking-tight">
-            Plan not found
+            {notFound ? "Plan not found" : "Could not load plan"}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            The plan may have been deleted or the link is incorrect.
+            {notFound
+              ? "The plan may have been deleted or the link is incorrect."
+              : error instanceof Error
+                ? error.message
+                : "Check your connection and try again."}
           </p>
         </div>
       </div>
@@ -827,10 +857,25 @@ export function PlanDetailPage() {
         </p>
       ) : null}
 
+      {saveMutation.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {saveMutation.error instanceof Error
+            ? saveMutation.error.message
+            : "Could not save the plan. Reload and try again."}
+        </p>
+      ) : null}
+
+      {finalizeMutation.isError || reopenMutation.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          The plan could not be updated. Reload and try again.
+        </p>
+      ) : null}
+
       <PlanDetailHeader plan={plan} fromWorkItem={fromWorkItem} />
 
       {plan.status === "clarifying" ? (
         <ClarificationFlow
+          agentAvailable={mockMode}
           allSubmitted={allClarificationsSubmitted}
           answers={answers}
           plan={plan}
@@ -858,6 +903,7 @@ export function PlanDetailPage() {
         />
       ) : (
         <ReviewWorkflow
+          agentAvailable={mockMode}
           isDirty={isDirty}
           isFinalizing={finalizeMutation.isPending}
           isReopening={reopenMutation.isPending}

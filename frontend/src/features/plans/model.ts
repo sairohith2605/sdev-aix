@@ -49,9 +49,15 @@ export const planRevisionSchema = z.object({
 
 export const planStatusSchema = z.enum(["clarifying", "review", "finalized"])
 
+export const planSourceSchema = z.object({
+  organization: z.string(),
+  projectId: z.string(),
+})
+
 export const planSchema = z.object({
   id: z.string(),
   workItemId: z.number().int().positive(),
+  source: planSourceSchema.optional(),
   workItem: workItemSchema,
   status: planStatusSchema.default("clarifying"),
   clarificationRounds: z.array(planClarificationRoundSchema).default([]),
@@ -60,6 +66,7 @@ export const planSchema = z.object({
   technicalPlan: z.array(planSectionSchema).default([]),
   revision: z.number().int().nonnegative().default(0),
   revisionHistory: z.array(planRevisionSchema).default([]),
+  version: z.number().int().positive().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   finalizedAt: z.iso.datetime().nullable().default(null),
@@ -98,6 +105,7 @@ export const savePlanRequestSchema = z.object({
 
 export const persistPlanRequestSchema = z.object({
   workItemId: z.number().int().positive(),
+  expectedVersion: z.number().int().positive(),
   functionalPlan: z.array(planSectionSchema),
   technicalPlan: z.array(planSectionSchema),
 })

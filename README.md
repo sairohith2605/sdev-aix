@@ -2,7 +2,7 @@
 
 A local-first, open-source application for turning software project-tracking work items into reviewable functional and technical plans. sdev-aix starts with Azure DevOps support, using a personal access token and one configured organization, project, and team. Support for other tools such as Jira is planned over time.
 
-> **Note:** sdev-aix is in early development. The application includes a FastAPI Azure DevOps connector and a mock planning conversation; durable plan storage and LangGraph workflows are still being built.
+> **Note:** sdev-aix is in early development. The application includes a FastAPI Azure DevOps connector and durable backend plan storage. Agent-driven plan creation and LangGraph workflows are still being built; demo planning remains available through MSW.
 
 ## Setup
 
@@ -54,6 +54,12 @@ VITE_API_BASE_URL=/api
 - Keep secrets such as PATs, API keys, and encryption keys on the backend.
 - `VITE_*` values are public in the browser bundle.
 - The initial connector stores one local connection and does not yet include app authentication. Bind the backend to localhost and use it only in a trusted local environment.
+
+### Plan storage foundation
+
+With `VITE_USE_MOCK_API=false`, FastAPI stores plans in the same SQLite database as the ADO connection. `/api/plans` supports list and detail reads; saved provisional plans can be edited, finalized, reopened, and deleted. Each plan keeps a work-item snapshot, clarification rounds, conversation, revisions, and approval state across restarts. Plan writes use a version number to reject stale changes. Plans from different ADO organizations/projects remain distinct even if their work-item IDs match.
+
+Agent-driven creation, clarification follow-ups, draft generation, and revision generation are not connected yet and return `PLANNER_NOT_READY` if called directly. The real-mode UI disables those actions until LangGraph is integrated; the MSW demo still supports the complete simulated flow. Existing browser IndexedDB mock copies are not automatically imported into backend storage. Back up your SQLite database or Compose `backend-data` volume to preserve plans.
 
 ### Copilot story-analysis probe
 

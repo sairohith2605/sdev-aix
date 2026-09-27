@@ -21,6 +21,8 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 
+import { isMockApiEnabled } from "@/config/mock-mode"
+import { getAdoConnection } from "@/features/connections/api"
 import { createPlan, getPlans } from "@/features/plans/api"
 import type { Plan } from "@/features/plans/model"
 import { getWorkItem } from "@/features/work-items/api"
@@ -239,12 +241,25 @@ function MarkdownSection({ title, value }: { title: string; value?: string }) {
 function WorkItemDetail({ item }: { item: WorkItem }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const mockMode = isMockApiEnabled()
   const { data: plans } = useQuery({
     queryKey: ["plans"],
     queryFn: ({ signal }) => getPlans(signal),
     staleTime: 60_000,
   })
-  const existingPlan = plans?.find((plan) => plan.workItemId === item.id)
+  const { data: connection } = useQuery({
+    queryKey: ["ado-connection"],
+    queryFn: ({ signal }) => getAdoConnection(signal),
+    enabled: !mockMode,
+  })
+  const existingPlan = plans?.find(
+    (plan) =>
+      plan.workItemId === item.id &&
+      (mockMode ||
+        (plan.source?.organization ===
+          connection?.organization?.toLowerCase() &&
+          plan.source?.projectId === connection?.project_id))
+  )
   const createPlanMutation = useMutation({
     mutationFn: (signal?: AbortSignal) =>
       createPlan({ workItemId: item.id }, signal),
@@ -313,7 +328,9 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
             <CardContent>
               <Button
                 className="w-full"
-                disabled={createPlanMutation.isPending}
+                disabled={
+                  createPlanMutation.isPending || (!mockMode && !existingPlan)
+                }
                 onClick={() => {
                   if (existingPlan) {
                     void navigate(`/plans/${existingPlan.id}`, {
@@ -333,11 +350,23 @@ function WorkItemDetail({ item }: { item: WorkItem }) {
                     Creating plan…
                   </>
                 ) : existingPlan ? (
-                  "Edit plan"
+                  mockMode ? (
+                    "Edit plan"
+                  ) : (
+                    "View plan"
+                  )
+                ) : !mockMode ? (
+                  "Planning agent coming soon"
                 ) : (
                   "Create plan"
                 )}
               </Button>
+              {!mockMode && !existingPlan ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Plan creation will be available when the LangGraph workflow is
+                  connected.
+                </p>
+              ) : null}
               {createPlanMutation.isError ? (
                 <p className="mt-2 text-xs text-destructive" role="alert">
                   Could not create the plan. Try again.

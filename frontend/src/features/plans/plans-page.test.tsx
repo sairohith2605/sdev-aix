@@ -26,6 +26,8 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   vi.clearAllMocks()
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
 })
 beforeEach(resetMockPlans)
 
@@ -83,6 +85,79 @@ async function createProvisionalPlan(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("plans", () => {
+  it("shows the real-mode persistence checkpoint without mock generation", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    vi.stubEnv("VITE_USE_MOCK_API", "false")
+    renderAt()
+
+    expect(
+      await screen.findByText(
+        "No saved plans yet. Plan creation will be available when LangGraph is connected."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Browse work items" })).toBeNull()
+  })
+
+  it("saves real-mode edits through the API without writing IndexedDB", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    vi.stubEnv("VITE_USE_MOCK_API", "false")
+    vi.stubGlobal("indexedDB", {
+      open: () => {
+        throw new Error("IndexedDB must not be used for a backend plan")
+      },
+    })
+    const plan = {
+      id: "plan-backend-review",
+      workItemId: workItems[0].id,
+      source: { organization: "contoso", projectId: "project-1" },
+      workItem: workItems[0],
+      status: "review",
+      clarificationRounds: [],
+      conversation: [],
+      functionalPlan: [
+        { id: "overview", title: "Overview", content: "Initial content" },
+      ],
+      technicalPlan: [
+        { id: "design", title: "Design", content: "Initial design" },
+      ],
+      revision: 1,
+      revisionHistory: [],
+      version: 3,
+      createdAt: "2026-09-25T10:00:00Z",
+      updatedAt: "2026-09-25T10:00:00Z",
+      finalizedAt: null,
+    }
+    server.use(
+      http.get(getMockPlanUrl(), () => HttpResponse.json(plan)),
+      http.put(getMockPlanUrl(), async ({ request }) => {
+        const body = (await request.json()) as {
+          expectedVersion: number
+          functionalPlan: { content: string }[]
+        }
+        expect(body.expectedVersion).toBe(3)
+        return HttpResponse.json({
+          ...plan,
+          functionalPlan: body.functionalPlan,
+          version: 4,
+        })
+      })
+    )
+    const user = userEvent.setup()
+    renderAt("/plans/plan-backend-review")
+
+    const overview = await screen.findByRole("textbox", { name: "Overview" })
+    await user.clear(overview)
+    await user.type(overview, "Edited content")
+    await user.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(await screen.findByText("Changes saved")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Request Revision" })
+    ).toBeDisabled()
+  })
+
   it("accepts clarification answers and returns a deterministic follow-up", async () => {
     const plan = await createPlan({ workItemId: 1042 })
     const updated = await submitClarifications(plan.id, {

@@ -2,7 +2,9 @@ from app.config import Settings, get_settings
 from app.connectors.azure_devops import AzureDevOpsClient
 from app.db import ConnectionStore
 from app.errors import ConnectorError
+from app.planning.store import PlanStore
 from app.services.connections import ConnectionService
+from app.services.plans import PlanService
 from app.services.work_items import WorkItemService
 
 
@@ -42,6 +44,10 @@ def get_work_item_service() -> WorkItemService:
         record["project_name"],
         record["team_id"],
     )
+
+
+def get_plan_service() -> PlanService:
+    return PlanService(PlanStore(get_settings().sqlite_path))
 
 
 def get_connection_service_dependency() -> ConnectionService:

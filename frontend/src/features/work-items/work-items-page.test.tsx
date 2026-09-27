@@ -8,7 +8,7 @@ import {
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { http, HttpResponse } from "msw"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, useLocation } from "react-router"
 
 import { App } from "@/App"
@@ -19,7 +19,10 @@ import type { WorkItemList } from "@/features/work-items/model"
 import { server } from "@/mocks/server"
 import { workItems } from "@/mocks/work-items"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllEnvs()
+})
 
 function LocationProbe() {
   const location = useLocation()
@@ -109,6 +112,20 @@ describe("work-item browser", () => {
     expect(within(metadata).getByText("P1")).toBeInTheDocument()
     const createPlan = screen.getByRole("button", { name: "Create plan" })
     expect(createPlan).toBeEnabled()
+  })
+
+  it("keeps real-mode plan creation disabled until LangGraph is available", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    vi.stubEnv("VITE_USE_MOCK_API", "false")
+    renderAt("/work-items/1042")
+
+    expect(
+      await screen.findByRole("button", { name: "Planning agent coming soon" })
+    ).toBeDisabled()
+    expect(
+      screen.getByText(/Plan creation will be available when the LangGraph/)
+    ).toBeInTheDocument()
   })
 
   it("renders ADO HTML in descriptions and acceptance criteria without unsafe markup", async () => {

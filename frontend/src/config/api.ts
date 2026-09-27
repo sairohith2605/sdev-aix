@@ -453,16 +453,18 @@ export async function requestPlanRevision(
 
 export async function finalizePlan(
   planId: string,
+  expectedVersion: number,
   signal?: AbortSignal
 ): Promise<Plan> {
-  return postPlanAction(planId, "finalize", undefined, signal)
+  return postPlanAction(planId, "finalize", { expectedVersion }, signal)
 }
 
 export async function reopenPlan(
   planId: string,
+  expectedVersion: number,
   signal?: AbortSignal
 ): Promise<Plan> {
-  return postPlanAction(planId, "reopen", undefined, signal)
+  return postPlanAction(planId, "reopen", { expectedVersion }, signal)
 }
 
 export async function deletePlanRequest(

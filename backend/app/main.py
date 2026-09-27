@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.connections import router as connections_router
+from app.api.plans import router as plans_router
 from app.api.work_items import router as work_items_router
 from app.config import get_settings
 
@@ -16,6 +17,7 @@ app.add_middleware(
     allow_headers=["Accept", "Content-Type"],
 )
 app.include_router(connections_router, prefix="/api")
+app.include_router(plans_router, prefix="/api")
 app.include_router(work_items_router, prefix="/api")
 
 

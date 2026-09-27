@@ -32,8 +32,10 @@ services:
       ADO_REQUEST_TIMEOUT_SECONDS: ${ADO_REQUEST_TIMEOUT_SECONDS:-15}
       COPILOT_DATA_PATH: /data/copilot
       COPILOT_MODEL: ${COPILOT_MODEL:-auto}
+      REPOSITORY_ALLOWED_ROOTS: /workspace
     volumes:
       - backend-data:/data
+      - ${REPOSITORY_WORKSPACE:-/tmp/sdev-aix-repositories}:/workspace:ro
     depends_on:
       init-key:
         condition: service_completed_successfully
@@ -79,8 +81,10 @@ services:
       COPILOT_DATA_PATH: /data/copilot
       COPILOT_MODEL: ${COPILOT_MODEL:-auto}
       COPILOT_TIMEOUT_SECONDS: ${COPILOT_TIMEOUT_SECONDS:-90}
+      REPOSITORY_ALLOWED_ROOTS: /workspace
     volumes:
       - backend-data:/data
+      - ${REPOSITORY_WORKSPACE:-/tmp/sdev-aix-repositories}:/workspace:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -106,6 +110,35 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+
+  repository-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.codebase.worker"]
+    environment:
+      DATABASE_URL: sqlite:////data/sdev-aix.db
+      REPOSITORY_ALLOWED_ROOTS: /workspace
+    volumes:
+      - backend-data:/data
+      - ${REPOSITORY_WORKSPACE:-/tmp/sdev-aix-repositories}:/workspace:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 512m
+    cpus: 1.0
+    init: true
+    restart: unless-stopped
 
   frontend:
     build:

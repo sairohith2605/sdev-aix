@@ -6,6 +6,8 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from pydantic import ValidationError
 
+from app.codebase.retrieval import RepositoryRetriever
+from app.codebase.store import RepositoryStore
 from app.config import Settings, get_settings
 from app.errors import PlanError
 from app.planning.graph import build_clarification_graph
@@ -13,6 +15,7 @@ from app.planning.store import PlanStore
 from app.providers.copilot import CopilotAnalysisError, CopilotAnalysisProvider
 from app.services.copilot_connections import CopilotConnectionService
 from app.services.plans import PlanService
+from app.services.repositories import RepositoryService
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,11 @@ class PlanningWorker:
             settings.copilot_timeout_seconds,
             settings.copilot_home,
         )
+        self.retriever = RepositoryRetriever(
+            RepositoryStore(settings.sqlite_path),
+            max_context_chars=settings.repository_context_chars,
+        )
+        self.repository_service = RepositoryService(settings)
 
     async def process_one(self, graph) -> bool:
         job = self.store.claim_next()
@@ -42,10 +50,24 @@ class PlanningWorker:
             values = snapshot.values or {}
             if job["action"] == "analyze":
                 if values.get("stage") not in {"awaiting_input", "ready_for_draft"}:
+                    graph_input = None
+                    if not values:
+                        story = plan.workItem.model_dump(mode="json")
+                        repository_context = (
+                            self.retriever.retrieve(story)
+                            if self.repository_service.summary().connected
+                            else None
+                        )
+                        graph_input = {
+                            "story": story,
+                            "repository_context": repository_context.model_dump(
+                                mode="json"
+                            )
+                            if repository_context
+                            else None,
+                        }
                     await graph.ainvoke(
-                        {"story": plan.workItem.model_dump(mode="json")}
-                        if not values
-                        else None,
+                        graph_input,
                         config,
                         durability="sync",
                     )

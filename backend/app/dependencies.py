@@ -1,3 +1,4 @@
+from app.codebase.store import RepositoryStore
 from app.config import Settings, get_settings
 from app.connectors.azure_devops import AzureDevOpsClient
 from app.db import ConnectionStore
@@ -6,6 +7,7 @@ from app.planning.store import PlanStore
 from app.services.connections import ConnectionService
 from app.services.copilot_connections import CopilotConnectionService
 from app.services.plans import PlanService
+from app.services.repositories import RepositoryService
 from app.services.work_items import WorkItemService
 
 
@@ -53,6 +55,11 @@ def get_plan_service() -> PlanService:
 
 def get_copilot_connection_service() -> CopilotConnectionService:
     return CopilotConnectionService(get_settings())
+
+
+def get_repository_service() -> RepositoryService:
+    settings = get_settings()
+    return RepositoryService(settings, RepositoryStore(settings.sqlite_path))
 
 
 def get_connection_service_dependency() -> ConnectionService:

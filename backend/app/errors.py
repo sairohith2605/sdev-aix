@@ -17,6 +17,10 @@ class PlanError(ApiError):
     pass
 
 
+class RepositoryError(ApiError):
+    pass
+
+
 def raise_http_error(error: ApiError) -> JSONResponse:
     return JSONResponse(
         status_code=error.status_code,

@@ -4,16 +4,22 @@ import {
   adoConnectionSummarySchema,
   adoResourcesSchema,
   copilotConnectionSummarySchema,
+  repositoryConnectionSummarySchema,
+  repositoryBrowseSchema,
   type AdoConnectionSummary,
   type CopilotConnectionSummary,
+  type ConnectRepositoryRequest,
   type ListAdoTeamsRequest,
   type SaveAdoConnectionRequest,
   type TestAdoConnectionRequest,
+  type RepositoryConnectionSummary,
+  type RepositoryBrowse,
 } from "@/features/connections/model"
 import { parseApiError } from "@/config/api"
 
 const connectionsUrl = "/api/connections/azure-devops"
 const copilotUrl = "/api/connections/github-copilot"
+const repositoryUrl = "/api/connections/repository"
 
 async function readError(response: Response): Promise<never> {
   let body: unknown
@@ -137,5 +143,60 @@ export async function saveCopilotConnection(
 
 export async function disconnectCopilot(): Promise<void> {
   const response = await fetch(copilotUrl, { method: "DELETE" })
+  if (!response.ok) await readError(response)
+}
+
+export async function getRepositoryConnection(
+  signal?: AbortSignal
+): Promise<RepositoryConnectionSummary> {
+  const response = await fetch(repositoryUrl, {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+  if (!response.ok) await readError(response)
+  return repositoryConnectionSummarySchema.parse(await response.json())
+}
+
+export async function browseRepositoryFolders(
+  path: string | null,
+  offset: number,
+  signal?: AbortSignal
+): Promise<RepositoryBrowse> {
+  const parameters = new URLSearchParams({ offset: String(offset) })
+  if (path !== null) parameters.set("path", path)
+  const response = await fetch(`${repositoryUrl}/browse?${parameters}`, {
+    signal,
+    headers: { Accept: "application/json" },
+  })
+  if (!response.ok) await readError(response)
+  return repositoryBrowseSchema.parse(await response.json())
+}
+
+export async function connectRepository(
+  request: ConnectRepositoryRequest
+): Promise<RepositoryConnectionSummary> {
+  const response = await fetch(repositoryUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(request),
+  })
+  if (!response.ok) await readError(response)
+  return repositoryConnectionSummarySchema.parse(await response.json())
+}
+
+export async function reindexRepository(
+  includeUncommitted: boolean
+): Promise<RepositoryConnectionSummary> {
+  const response = await fetch(`${repositoryUrl}/index`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ includeUncommitted }),
+  })
+  if (!response.ok) await readError(response)
+  return repositoryConnectionSummarySchema.parse(await response.json())
+}
+
+export async function disconnectRepository(): Promise<void> {
+  const response = await fetch(repositoryUrl, { method: "DELETE" })
   if (!response.ok) await readError(response)
 }

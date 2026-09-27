@@ -6,6 +6,7 @@ from langgraph.types import interrupt
 
 class PlanningState(TypedDict, total=False):
     story: dict[str, Any]
+    repository_context: dict[str, Any] | None
     analysis: dict[str, Any]
     current_round: dict[str, Any] | None
     next_questions: list[dict[str, str]]
@@ -16,7 +17,15 @@ class PlanningState(TypedDict, total=False):
 
 def build_clarification_graph(provider: Any, credentials: Any, checkpointer: Any):
     async def analyze(state: PlanningState) -> dict:
-        result = await provider.analyze(state["story"], credentials.active_pat())
+        repository_context = state.get("repository_context")
+        if repository_context:
+            result = await provider.analyze(
+                state["story"],
+                credentials.active_pat(),
+                repository_context=repository_context,
+            )
+        else:
+            result = await provider.analyze(state["story"], credentials.active_pat())
         return {
             "analysis": result.model_dump(),
             "completed_round_ids": [],
@@ -73,12 +82,19 @@ def build_clarification_graph(provider: Any, credentials: Any, checkpointer: Any
         )
 
     async def follow_up(state: PlanningState) -> dict:
-        result = await provider.follow_up(
+        arguments = (
             state["story"],
             state["analysis"],
             state["answer_history"][-1]["answers"],
             credentials.active_pat(),
         )
+        repository_context = state.get("repository_context")
+        if repository_context:
+            result = await provider.follow_up(
+                *arguments, repository_context=repository_context
+            )
+        else:
+            result = await provider.follow_up(*arguments)
         return {"next_questions": [q.model_dump() for q in result.questions]}
 
     def ready(state: PlanningState) -> dict:

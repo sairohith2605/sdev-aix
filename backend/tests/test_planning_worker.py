@@ -7,6 +7,7 @@ import pytest
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from app.codebase.models import RepositoryContext
 from app.config import Settings
 from app.dependencies import get_copilot_connection_service, get_plan_service
 from app.errors import PlanError
@@ -26,8 +27,12 @@ class FakeCredentials:
 
 
 class FakeProvider:
-    async def analyze(self, story, pat):
+    def __init__(self):
+        self.repository_context = None
+
+    async def analyze(self, story, pat, *, repository_context=None):
         assert pat == "private-token"
+        self.repository_context = repository_context
         return StoryAnalysis.model_validate(
             {
                 "goal": story["title"],
@@ -92,6 +97,68 @@ async def test_worker_projects_analysis_and_resumes_from_durable_checkpoint(
     assert worker.store.latest_run(plan.id)["status"] == "ready_for_draft"
     assert resumed.clarificationRounds[0].answers[0].value == "HR admins"
     assert resumed.conversation[-1].role == "agent"
+
+
+@pytest.mark.asyncio
+async def test_worker_pins_repository_context_in_graph_and_plan(tmp_path: Path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'plans.db'}")
+    provider = FakeProvider()
+    worker = PlanningWorker(settings, provider=provider)
+    worker.credentials = FakeCredentials()
+    context = RepositoryContext.model_validate(
+        {
+            "snapshot": {
+                "name": "employee-portal",
+                "branch": "main",
+                "commitSha": "abc123",
+                "snapshotId": "abc123",
+                "dirty": False,
+                "indexedAt": "2026-09-27T10:00:00Z",
+            },
+            "profile": "Languages: python.",
+            "evidence": [
+                {
+                    "chunkId": "chunk-1",
+                    "commitSha": "abc123",
+                    "snapshotId": "abc123",
+                    "contentHash": "content-abc123",
+                    "path": "src/employees.py",
+                    "language": "python",
+                    "symbol": "EmployeeDirectory",
+                    "kind": "class",
+                    "startLine": 1,
+                    "endLine": 5,
+                    "excerpt": "class EmployeeDirectory: pass",
+                    "reason": "Matched story terms: employee",
+                }
+            ],
+        }
+    )
+
+    class FakeRetriever:
+        def retrieve(self, _story):
+            return context
+
+    worker.retriever = FakeRetriever()
+
+    class ReadyRepository:
+        def summary(self):
+            return type("Summary", (), {"connected": True})()
+
+    worker.repository_service = ReadyRepository()
+    plan = worker.service.create_from_story(
+        story(),
+        PlanSource(organization="contoso", projectId="project-1"),
+        [],
+        enqueue_analysis=True,
+    )
+
+    async with graph_for(worker, tmp_path / "checkpoints.sqlite") as graph:
+        assert await worker.process_one(graph)
+
+    projected = worker.service.get(plan.id)
+    assert projected.repositoryContext == context
+    assert provider.repository_context["snapshot"]["snapshotId"] == "abc123"
 
 
 def test_answer_endpoint_validates_and_queues_checkpoint_resume(tmp_path: Path):

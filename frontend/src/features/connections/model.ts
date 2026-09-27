@@ -43,3 +43,47 @@ export const copilotConnectionSummarySchema = z.object({
 export type CopilotConnectionSummary = z.infer<
   typeof copilotConnectionSummarySchema
 >
+
+export const repositoryConnectionSummarySchema = z.object({
+  connected: z.boolean(),
+  status: z.enum(["disconnected", "queued", "indexing", "ready", "failed"]),
+  requestedPath: z.string().nullable(),
+  progressFiles: z.number().int().nonnegative(),
+  totalFiles: z.number().int().nonnegative(),
+  errorCode: z.string().nullable(),
+  name: z.string().nullable().optional(),
+  rootPath: z.string().nullable().optional(),
+  branch: z.string().nullable().optional(),
+  commitSha: z.string().nullable().optional(),
+  snapshotId: z.string().nullable().optional(),
+  dirty: z.boolean().default(false),
+  indexedAt: z.iso.datetime().nullable().optional(),
+  fileCount: z.number().int().nonnegative().default(0),
+  chunkCount: z.number().int().nonnegative().default(0),
+})
+
+export type RepositoryConnectionSummary = z.infer<
+  typeof repositoryConnectionSummarySchema
+>
+
+export type ConnectRepositoryRequest = {
+  path: string
+  includeUncommitted: boolean
+}
+
+export const repositoryBrowseSchema = z.object({
+  path: z.string().nullable(),
+  parentPath: z.string().nullable(),
+  isRepository: z.boolean(),
+  directories: z.array(
+    z.object({
+      name: z.string(),
+      path: z.string(),
+      isRepository: z.boolean(),
+    })
+  ),
+  offset: z.number().int().nonnegative(),
+  hasMore: z.boolean(),
+})
+
+export type RepositoryBrowse = z.infer<typeof repositoryBrowseSchema>

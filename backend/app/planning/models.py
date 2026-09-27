@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.codebase.models import RepositoryContext
 from app.schemas import WorkItemResponse
 
 
@@ -93,6 +94,7 @@ class Plan(BaseModel):
     source: PlanSource
     workItem: PlanWorkItem
     analysis: PlanAnalysis | None = None
+    repositoryContext: RepositoryContext | None = None
     status: Literal["clarifying", "review", "finalized"]
     clarificationRounds: list[PlanClarificationRound]
     conversation: list[PlanMessage]

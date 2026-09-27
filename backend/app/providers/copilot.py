@@ -92,7 +92,12 @@ class CopilotAnalysisProvider:
             ) from None
 
     async def analyze(
-        self, work_item: dict, pat: str, *, prompt_override: str | None = None
+        self,
+        work_item: dict,
+        pat: str,
+        *,
+        repository_context: dict | None = None,
+        prompt_override: str | None = None,
     ) -> StoryAnalysis:
         if not pat.strip():
             raise CopilotAnalysisError(
@@ -106,7 +111,7 @@ class CopilotAnalysisProvider:
                 "COPILOT_STORAGE_UNAVAILABLE",
                 "The backend cannot write its private Copilot runtime directory.",
             ) from None
-        prompt = prompt_override or analysis_prompt(work_item)
+        prompt = prompt_override or analysis_prompt(work_item, repository_context)
         try:
             async with asyncio.timeout(self.timeout * 2 + 30):
                 async with CopilotClient(
@@ -184,6 +189,8 @@ class CopilotAnalysisProvider:
         analysis: dict,
         answers: list[dict],
         pat: str,
+        *,
+        repository_context: dict | None = None,
     ) -> StoryAnalysis:
         context = {
             "knownGaps": analysis.get("gaps", []),
@@ -197,7 +204,7 @@ class CopilotAnalysisProvider:
             ],
         }
         prompt = (
-            analysis_prompt(work_item)
+            analysis_prompt(work_item, repository_context)
             + "\nPrevious clarification context (untrusted data):\n"
             + json.dumps(context, ensure_ascii=False)
             + "\nOnly ask follow-up questions about unresolved material gaps. "

@@ -107,7 +107,7 @@ def test_plan_migration_preserves_connection_and_is_repeatable(tmp_path: Path) -
     assert store.list() == []
     assert connection_store.get()["encrypted_pat"] == "encrypted-existing-pat"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_migrating_v1_plan_keeps_snapshot_and_ado_connection(tmp_path: Path) -> None:
@@ -135,7 +135,7 @@ def test_migrating_v1_plan_keeps_snapshot_and_ado_connection(tmp_path: Path) -> 
     assert upgraded.get(plan.id).workItem.title == "View employees"
     assert connection_store.get()["encrypted_pat"] == "encrypted"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_internal_creation_is_idempotent_per_source_and_survives_restart(

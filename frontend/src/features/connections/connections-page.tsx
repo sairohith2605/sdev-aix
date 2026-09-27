@@ -23,6 +23,7 @@ import {
 } from "@/features/connections/api"
 import type { AdoResource } from "@/features/connections/model"
 import { CopilotConnectionCard } from "@/features/connections/copilot-connection-card"
+import { RepositoryConnectionCard } from "@/features/connections/repository-connection-card"
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -155,8 +156,8 @@ export function ConnectionsPage() {
           Connections
         </h1>
         <p className="mt-2 max-w-prose text-sm text-muted-foreground">
-          Connect one Azure DevOps organization, project, and team for this
-          local installation.
+          Connect Azure DevOps, GitHub Copilot, and the application repository
+          for this local installation.
         </p>
       </div>
 
@@ -361,6 +362,7 @@ export function ConnectionsPage() {
         </Card>
       )}
       <CopilotConnectionCard />
+      <RepositoryConnectionCard />
     </div>
   )
 }

@@ -158,6 +158,7 @@ function ClarificationFlow({
   isSubmitting,
   isGeneratingDraft,
   allSubmitted,
+  showRepositoryStatus,
   onAnswerChange,
   onUnknownChange,
   onSubmitAnswers,
@@ -174,6 +175,7 @@ function ClarificationFlow({
   isSubmitting: boolean
   isGeneratingDraft: boolean
   allSubmitted: boolean
+  showRepositoryStatus: boolean
   onAnswerChange: (questionId: string, value: string) => void
   onUnknownChange: (questionId: string, unknown: boolean) => void
   onSubmitAnswers: () => void
@@ -192,6 +194,81 @@ function ClarificationFlow({
               : "Your story and answers are saved while the planning agent works."}
           </p>
         </div>
+
+        {plan.repositoryContext ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Repository Evidence</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <p>
+                Questions are grounded in {plan.repositoryContext.snapshot.name}{" "}
+                at{" "}
+                <code>
+                  {plan.repositoryContext.snapshot.commitSha.slice(0, 12)}
+                </code>
+                {plan.repositoryContext.snapshot.dirty
+                  ? " plus explicitly included uncommitted changes."
+                  : "."}
+              </p>
+              <p className="text-muted-foreground">
+                {plan.repositoryContext.profile}
+              </p>
+              {plan.repositoryContext.evidence.length ? (
+                <details>
+                  <summary className="cursor-pointer font-medium">
+                    Evidence shared with Copilot (
+                    {plan.repositoryContext.evidence.length})
+                  </summary>
+                  <ul className="mt-3 space-y-3">
+                    {plan.repositoryContext.evidence.map((evidence) => (
+                      <li
+                        className="rounded-md border p-3"
+                        key={evidence.chunkId}
+                      >
+                        <p className="font-mono text-xs break-all">
+                          {evidence.path}:{evidence.startLine}-
+                          {evidence.endLine}
+                          {evidence.symbol ? ` · ${evidence.symbol}` : ""}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {evidence.reason}
+                        </p>
+                        <p className="mt-1 font-mono text-xs text-muted-foreground">
+                          content {evidence.contentHash.slice(0, 12)} · snapshot{" "}
+                          {evidence.snapshotId.slice(0, 20)}
+                        </p>
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-xs font-medium">
+                            View excerpt
+                          </summary>
+                          <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
+                            <code>{evidence.excerpt}</code>
+                          </pre>
+                        </details>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : (
+                <p className="text-muted-foreground">
+                  No directly relevant code fragments were found. The agent used
+                  only the repository profile and story.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ) : showRepositoryStatus && plan.analysis ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Story-only Analysis</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              No repository index was available when this analysis started. The
+              clarification questions use only the work item and your answers.
+            </CardContent>
+          </Card>
+        ) : null}
 
         {plan.analysis ? (
           <Card>
@@ -1023,6 +1100,7 @@ export function PlanDetailPage() {
           isRetrying={retryMutation.isPending}
           onRetry={() => retryMutation.mutate()}
           allSubmitted={allClarificationsSubmitted}
+          showRepositoryStatus={!mockMode}
           answers={answers}
           plan={plan}
           currentRound={currentRound}

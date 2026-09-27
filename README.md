@@ -58,6 +58,7 @@ VITE_API_BASE_URL=/api
 - `dist.env` lists planned environment variables for backend integrations.
 - Configure one Azure DevOps Org:Project:Team in Connections using a PAT with Work Items (Read), Project and Team (Read), and Identity (Read) scopes.
 - Configure GitHub Copilot separately in Connections with a user-owned fine-grained GitHub PAT that has the Copilot Requests account permission. The backend verifies and encrypts it; it is never returned to the browser.
+- Connect the target application repository explicitly in Connections. There is no preselected repository. For Compose, set `REPOSITORY_WORKSPACE` to a host directory containing your Git repositories; it is mounted read-only at `/workspace`. Use **Browse folders** to select a repository under `/workspace` (or enter the path manually), then click **Connect and index**. Browsing only fills the path; it never indexes by itself. For local backend development, configure `REPOSITORY_ALLOWED_ROOTS` to the parent directory before connecting. Dirty working trees require explicit consent.
 - The PAT is encrypted by FastAPI with `CREDENTIAL_ENCRYPTION_KEY`; it is never sent back to the browser.
 - Keep secrets such as PATs, API keys, and encryption keys on the backend.
 - `VITE_*` values are public in the browser bundle.
@@ -65,9 +66,11 @@ VITE_API_BASE_URL=/api
 
 ### Plan storage foundation
 
-With `VITE_USE_MOCK_API=false`, FastAPI stores plans, run state, graph checkpoints, the ADO connection, and the encrypted Copilot PAT in the local SQLite data volume. `/api/plans` supports list/detail, creation, answer submission, save, finalize, reopen, retry, and delete. Each plan keeps a work-item snapshot, analysis, clarification rounds, conversation, revisions, and approval state across restarts. Plan writes use a version number to reject stale changes. Plans from different ADO organizations/projects remain distinct even if their work-item IDs match.
+With `VITE_USE_MOCK_API=false`, FastAPI stores plans, run state, graph checkpoints, the repository index, the ADO connection, and the encrypted Copilot PAT in the local SQLite data volume. `/api/plans` supports list/detail, creation, answer submission, save, finalize, reopen, retry, and delete. Each plan keeps a work-item snapshot, pinned repository evidence, analysis, clarification rounds, conversation, revisions, and approval state across restarts. Plan writes use a version number to reject stale changes. Plans from different ADO organizations/projects remain distinct even if their work-item IDs match.
 
-The LangGraph creation and clarification workflow is enabled in real mode. Run the background worker with `uv run --extra dev python -m app.planning.worker` when developing outside Compose; Compose starts its worker service automatically. Provisional functional/technical draft generation and agent-driven revisions are still the next slice; those actions remain unavailable in real mode. The MSW demo retains its deterministic full flow. Existing browser IndexedDB mock copies are not automatically imported into backend storage. Back up your SQLite database or Compose `backend-data` volume to preserve plans and resumable checkpoints.
+The LangGraph creation and clarification workflow is enabled in real mode. Connecting a repository queues a durable index job; the Connections page shows progress and failure status. Only a ready index under a configured allowed root can provide evidence. Otherwise, analysis uses the work item alone. Run `uv run --extra dev python -m app.codebase.worker` alongside `uv run --extra dev python -m app.planning.worker` outside Compose; Compose starts both workers automatically. Draft generation and agent-driven revisions remain disabled in real mode. The MSW demo retains its deterministic full flow.
+
+Repository indexing is local and deterministic: Dulwich reads Git state without invoking a shell, Tree-sitter extracts Python/JavaScript/TypeScript symbols, and SQLite FTS5 ranks normalized paths, identifiers, source, and related tests/imports. Re-indexing reuses unchanged chunks. Secret-like files, `.env*`, dependencies, build output, lockfiles, binaries, oversized files, and symlinks are excluded. Copilot remains in tool-free `mode="empty"`; it receives only the selected evidence shown on the plan page.
 
 ### Copilot story-analysis probe
 
@@ -93,7 +96,7 @@ Compose pre-downloads the SDK runtime during the backend image build and uses th
 
 ### Run Locally with Docker Compose
 
-Compose runs the frontend, FastAPI backend, a LangGraph background worker, and a one-shot Python key initializer. On every startup, the initializer checks the persistent volume and creates the Fernet key only if it is missing; it never replaces an existing key. SQLite, the key, Copilot runtime state, and LangGraph checkpoints live together in the named `backend-data` volume. ADO and GitHub Copilot PATs are encrypted with this key. Only the frontend is published, bound to `127.0.0.1`; the backend and worker are not published. The app has no login yet, so keep it local.
+Compose runs the frontend, FastAPI backend, planning and repository workers, and a one-shot Python key initializer. `REPOSITORY_WORKSPACE` selects a host directory mounted read-only at `/workspace`. If unset, an empty directory under `/tmp` is mounted; the planner's own source is never mounted automatically. SQLite, the encryption key, repository index, Copilot runtime state, and LangGraph checkpoints live in the named `backend-data` volume. ADO and GitHub Copilot PATs are encrypted. Only the frontend is published, bound to `127.0.0.1`; keep the unauthenticated app local.
 
 1. Build and start the stack:
 

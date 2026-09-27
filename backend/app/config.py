@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -21,6 +22,9 @@ class Settings(BaseSettings):
     copilot_model: str = "auto"
     copilot_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
     copilot_data_path: Path = Path("./data/copilot")
+    repository_allowed_roots: str = ""
+    repository_max_file_bytes: int = Field(default=512_000, ge=10_000, le=2_000_000)
+    repository_context_chars: int = Field(default=40_000, ge=4_000, le=100_000)
 
     @model_validator(mode="after")
     def load_credential_encryption_key_file(self) -> "Settings":
@@ -55,6 +59,14 @@ class Settings(BaseSettings):
     @property
     def graph_checkpoint_path(self) -> Path:
         return self.sqlite_path.with_name("langgraph-checkpoints.db")
+
+    @property
+    def repository_roots(self) -> list[Path]:
+        return [
+            Path(value).expanduser().resolve()
+            for value in self.repository_allowed_roots.split(os.pathsep)
+            if value.strip()
+        ]
 
 
 @lru_cache

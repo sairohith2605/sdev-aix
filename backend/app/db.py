@@ -70,14 +70,14 @@ def initialize_plan_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(database_path, timeout=5)) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 3:
+        if version > 5:
             raise RuntimeError("This database requires a newer sdev-aix version")
-        if version == 3:
+        if version == 5:
             return
         with connection:
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 3:
+            if version > 5:
                 raise RuntimeError("This database requires a newer sdev-aix version")
             if version < 1:
                 connection.execute(
@@ -136,3 +136,92 @@ def initialize_plan_schema(database_path: Path) -> None:
                 )
             if version < 3:
                 connection.execute("PRAGMA user_version = 3")
+            if version < 4:
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS repository_connection (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        root_path TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        branch TEXT,
+                        commit_sha TEXT NOT NULL,
+                        snapshot_id TEXT NOT NULL,
+                        dirty INTEGER NOT NULL CHECK (dirty IN (0, 1)),
+                        indexed_at TEXT NOT NULL,
+                        file_count INTEGER NOT NULL CHECK (file_count >= 0),
+                        chunk_count INTEGER NOT NULL CHECK (chunk_count >= 0)
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS repository_files (
+                        path TEXT PRIMARY KEY,
+                        content_hash TEXT NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS repository_chunks (
+                        id TEXT PRIMARY KEY,
+                        path TEXT NOT NULL,
+                        language TEXT NOT NULL,
+                        symbol TEXT,
+                        kind TEXT NOT NULL,
+                        start_line INTEGER NOT NULL CHECK (start_line > 0),
+                        end_line INTEGER NOT NULL CHECK (end_line > 0),
+                        content TEXT NOT NULL,
+                        identifiers TEXT NOT NULL,
+                        imports TEXT NOT NULL,
+                        content_hash TEXT NOT NULL,
+                        is_test INTEGER NOT NULL CHECK (is_test IN (0, 1))
+                    )
+                    """
+                )
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS repository_chunks_path_idx "
+                    "ON repository_chunks(path, start_line)"
+                )
+                connection.execute(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS repository_chunks_fts
+                    USING fts5(
+                        chunk_id UNINDEXED,
+                        path,
+                        symbol,
+                        identifiers,
+                        content,
+                        tokenize = 'unicode61 remove_diacritics 2'
+                    )
+                    """
+                )
+                connection.execute("PRAGMA user_version = 4")
+            if version < 5:
+                # The former Compose mount always pointed /repository at this
+                # planner's own source, not a user-selected application.
+                legacy = connection.execute(
+                    "SELECT 1 FROM repository_connection "
+                    "WHERE id = 1 AND root_path = '/repository'"
+                ).fetchone()
+                if legacy:
+                    connection.execute("DELETE FROM repository_chunks_fts")
+                    connection.execute("DELETE FROM repository_chunks")
+                    connection.execute("DELETE FROM repository_files")
+                    connection.execute("DELETE FROM repository_connection")
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS repository_index_job (
+                        id TEXT PRIMARY KEY,
+                        path TEXT NOT NULL,
+                        include_uncommitted INTEGER NOT NULL,
+                        status TEXT NOT NULL CHECK (
+                            status IN ('queued', 'running', 'ready', 'failed')
+                        ),
+                        progress_files INTEGER NOT NULL DEFAULT 0,
+                        total_files INTEGER NOT NULL DEFAULT 0,
+                        error_code TEXT
+                    )
+                    """
+                )
+                connection.execute("PRAGMA user_version = 5")

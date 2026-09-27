@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import uuid4
 
+from app.codebase.models import RepositoryContext
 from app.errors import PlanError
 from app.planning.models import (
     Plan,
@@ -250,6 +251,11 @@ class PlanService:
         updated = plan.model_copy(
             update={
                 "analysis": PlanAnalysis.model_validate(state["analysis"]),
+                "repositoryContext": RepositoryContext.model_validate(
+                    state["repository_context"]
+                )
+                if state.get("repository_context")
+                else None,
                 "clarificationRounds": rounds,
                 "conversation": conversation,
                 "updatedAt": now,

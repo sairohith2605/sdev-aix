@@ -71,6 +71,14 @@ function currentSprintWindow() {
 
 const plansStore = new Map<string, Plan>()
 let mockCopilotConnected = false
+let mockRepositoryConnection: Record<string, unknown> = {
+  connected: false,
+  status: "disconnected",
+  requestedPath: null,
+  progressFiles: 0,
+  totalFiles: 0,
+  errorCode: null,
+}
 const planRuns = new Map<
   string,
   { id: string; planId: string; status: string; errorCode: string | null }
@@ -78,6 +86,17 @@ const planRuns = new Map<
 
 export function resetMockCopilotConnection(): void {
   mockCopilotConnected = false
+}
+
+export function resetMockRepositoryConnection(): void {
+  mockRepositoryConnection = {
+    connected: false,
+    status: "disconnected",
+    requestedPath: null,
+    progressFiles: 0,
+    totalFiles: 0,
+    errorCode: null,
+  }
 }
 
 function getPlansForWorkItem(workItemId: number): Plan[] {
@@ -122,6 +141,96 @@ function detailMarkdown(item: (typeof workItems)[number]) {
 }
 
 export const handlers = [
+  http.get("/api/connections/repository/browse", async ({ request }) => {
+    await delay(getMockDelay())
+    const path = new URL(request.url).searchParams.get("path")
+    if (path === null) {
+      return HttpResponse.json({
+        path: null,
+        parentPath: null,
+        isRepository: false,
+        directories: [
+          { name: "workspace", path: "/workspace", isRepository: false },
+        ],
+        offset: 0,
+        hasMore: false,
+      })
+    }
+    if (path === "/workspace") {
+      return HttpResponse.json({
+        path,
+        parentPath: null,
+        isRepository: false,
+        directories: [
+          {
+            name: "employee-portal",
+            path: "/workspace/employee-portal",
+            isRepository: true,
+          },
+          { name: "sandbox", path: "/workspace/sandbox", isRepository: false },
+        ],
+        offset: 0,
+        hasMore: false,
+      })
+    }
+    if (path === "/workspace/employee-portal") {
+      return HttpResponse.json({
+        path,
+        parentPath: "/workspace",
+        isRepository: true,
+        directories: [],
+        offset: 0,
+        hasMore: false,
+      })
+    }
+    return HttpResponse.json(
+      { message: "Directory is outside the allowed workspace.", status: 403 },
+      { status: 403 }
+    )
+  }),
+  http.get("/api/connections/repository", async () => {
+    await delay(getMockDelay())
+    return HttpResponse.json(mockRepositoryConnection)
+  }),
+  http.put("/api/connections/repository", async ({ request }) => {
+    await delay(getMockDelay())
+    const body = (await request.json()) as Record<string, unknown>
+    if (typeof body.path !== "string" || !body.path.trim()) {
+      return HttpResponse.json(
+        { message: "Enter a repository path.", status: 422 },
+        { status: 422 }
+      )
+    }
+    mockRepositoryConnection = {
+      connected: true,
+      status: "ready",
+      requestedPath: body.path,
+      progressFiles: 84,
+      totalFiles: 84,
+      errorCode: null,
+      name: "sdev-aix",
+      rootPath: body.path,
+      branch: "feature/repository-context",
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+      snapshotId: body.includeUncommitted
+        ? "0123456789abcdef-dirty-demo"
+        : "0123456789abcdef0123456789abcdef01234567",
+      dirty: body.includeUncommitted === true,
+      indexedAt: "2026-09-27T10:00:00Z",
+      fileCount: 84,
+      chunkCount: 312,
+    }
+    return HttpResponse.json(mockRepositoryConnection)
+  }),
+  http.post("/api/connections/repository/index", async () => {
+    await delay(getMockDelay())
+    return HttpResponse.json(mockRepositoryConnection)
+  }),
+  http.delete("/api/connections/repository", async () => {
+    await delay(getMockDelay())
+    resetMockRepositoryConnection()
+    return HttpResponse.json({ connected: false })
+  }),
   http.get("/api/connections/github-copilot", async () => {
     await delay(getMockDelay())
     return HttpResponse.json({

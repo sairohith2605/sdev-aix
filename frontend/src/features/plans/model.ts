@@ -60,6 +60,34 @@ export const planAnalysisSchema = z.object({
   questions: z.array(z.object({ prompt: z.string(), rationale: z.string() })),
 })
 
+export const repositoryContextSchema = z.object({
+  snapshot: z.object({
+    name: z.string(),
+    branch: z.string().nullable(),
+    commitSha: z.string(),
+    snapshotId: z.string(),
+    dirty: z.boolean(),
+    indexedAt: z.iso.datetime(),
+  }),
+  profile: z.string(),
+  evidence: z.array(
+    z.object({
+      chunkId: z.string(),
+      commitSha: z.string(),
+      snapshotId: z.string(),
+      contentHash: z.string(),
+      path: z.string(),
+      language: z.string(),
+      symbol: z.string().nullable(),
+      kind: z.string(),
+      startLine: z.number().int().positive(),
+      endLine: z.number().int().positive(),
+      excerpt: z.string(),
+      reason: z.string(),
+    })
+  ),
+})
+
 export const planStatusSchema = z.enum(["clarifying", "review", "finalized"])
 
 export const planSourceSchema = z.object({
@@ -73,6 +101,7 @@ export const planSchema = z.object({
   source: planSourceSchema.optional(),
   workItem: workItemSchema,
   analysis: planAnalysisSchema.nullable().optional(),
+  repositoryContext: repositoryContextSchema.nullable().optional(),
   status: planStatusSchema.default("clarifying"),
   clarificationRounds: z.array(planClarificationRoundSchema).default([]),
   conversation: z.array(planMessageSchema).default([]),

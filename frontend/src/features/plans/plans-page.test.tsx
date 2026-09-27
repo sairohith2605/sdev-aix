@@ -168,6 +168,33 @@ describe("plans", () => {
       workItemId: workItems[0].id,
       source: { organization: "contoso", projectId: "project-1" },
       workItem: workItems[0],
+      repositoryContext: {
+        snapshot: {
+          name: "employee-portal",
+          branch: "main",
+          commitSha: "0123456789abcdef0123456789abcdef01234567",
+          snapshotId: "0123456789abcdef0123456789abcdef01234567",
+          dirty: false,
+          indexedAt: "2026-09-25T09:00:00Z",
+        },
+        profile: "Languages: TypeScript (20 files). Top-level areas: src.",
+        evidence: [
+          {
+            chunkId: "chunk-1",
+            commitSha: "0123456789abcdef0123456789abcdef01234567",
+            snapshotId: "0123456789abcdef0123456789abcdef01234567",
+            contentHash: "abcdef0123456789",
+            path: "src/employees/service.ts",
+            language: "typescript",
+            symbol: "listEmployees",
+            kind: "function",
+            startLine: 10,
+            endLine: 24,
+            excerpt: "export function listEmployees() { return [] }",
+            reason: "Matched story terms: employee, list",
+          },
+        ],
+      },
       analysis: {
         goal: "Show the employee directory",
         facts: [{ statement: "User Story asks for a grid", source: "title" }],
@@ -255,6 +282,11 @@ describe("plans", () => {
     renderAt("/plans/plan-real-questions")
 
     expect(await screen.findByText("Story Analysis")).toBeInTheDocument()
+    expect(screen.getByText("Repository Evidence")).toBeInTheDocument()
+    expect(screen.getByText(/employee-portal/)).toBeInTheDocument()
+    expect(
+      screen.getByText("Evidence shared with Copilot (1)")
+    ).toBeInTheDocument()
     expect(
       screen.getByText("The expected row limit is unknown")
     ).toBeInTheDocument()

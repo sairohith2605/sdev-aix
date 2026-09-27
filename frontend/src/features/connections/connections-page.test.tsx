@@ -8,13 +8,17 @@ import { MemoryRouter } from "react-router"
 import { App } from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { resetMockCopilotConnection } from "@/mocks/handlers"
+import {
+  resetMockCopilotConnection,
+  resetMockRepositoryConnection,
+} from "@/mocks/handlers"
 import { server } from "@/mocks/server"
 
 afterEach(() => {
   cleanup()
   server.resetHandlers()
   resetMockCopilotConnection()
+  resetMockRepositoryConnection()
 })
 
 describe("GitHub Copilot connection settings", () => {
@@ -38,6 +42,109 @@ describe("GitHub Copilot connection settings", () => {
     expect(screen.queryByText("github-test-secret")).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Disconnect Copilot" }))
     expect(await screen.findByLabelText("GitHub Copilot PAT")).toHaveValue("")
+  })
+})
+
+describe("repository connection settings", () => {
+  it("browses to a Git folder and fills the path without connecting", async () => {
+    const user = userEvent.setup()
+    renderConnections()
+
+    const input = await screen.findByLabelText("Repository path")
+    await user.click(screen.getByRole("button", { name: "Browse folders" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Open workspace" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Select employee-portal" })
+    )
+
+    expect(input).toHaveValue("/workspace/employee-portal")
+    expect(screen.getAllByText("Not connected").length).toBeGreaterThan(0)
+    expect(
+      screen.queryByRole("button", { name: "Refresh index" })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Connect and index" }))
+    expect(
+      await screen.findByRole("button", { name: "Refresh index" })
+    ).toBeEnabled()
+  })
+
+  it("indexes a local repository with explicit dirty-worktree consent", async () => {
+    const user = userEvent.setup()
+    renderConnections()
+
+    const pathInput = await screen.findByLabelText("Repository path")
+    expect(pathInput).toHaveValue("")
+    await user.type(pathInput, "/workspace/employee-portal")
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "Include uncommitted files and changes in this snapshot",
+      })
+    )
+    await user.click(screen.getByRole("button", { name: "Connect and index" }))
+
+    expect(
+      await screen.findByRole("button", { name: "Refresh index" })
+    ).toBeEnabled()
+    expect(screen.getAllByText("sdev-aix")).toHaveLength(2)
+    expect(screen.getByText("84 files · 312 chunks")).toBeInTheDocument()
+    expect(screen.getByText("Includes uncommitted changes")).toBeInTheDocument()
+  })
+
+  it("shows durable indexing status until the repository is ready", async () => {
+    const user = userEvent.setup()
+    let status: "disconnected" | "queued" | "ready" = "disconnected"
+    const pending = {
+      connected: false,
+      status: "queued",
+      requestedPath: "/workspace/employee-portal",
+      progressFiles: 0,
+      totalFiles: 0,
+      errorCode: null,
+    }
+    server.use(
+      http.get("/api/connections/repository", () =>
+        HttpResponse.json(
+          status === "disconnected"
+            ? { ...pending, status }
+            : status === "queued"
+              ? pending
+              : {
+                  ...pending,
+                  connected: true,
+                  status: "ready",
+                  name: "employee-portal",
+                  rootPath: pending.requestedPath,
+                  branch: "main",
+                  commitSha: "abc123",
+                  snapshotId: "abc123",
+                  dirty: false,
+                  indexedAt: "2026-09-27T10:00:00Z",
+                  fileCount: 2,
+                  chunkCount: 3,
+                }
+        )
+      ),
+      http.put("/api/connections/repository", () => {
+        status = "queued"
+        return HttpResponse.json(pending)
+      })
+    )
+    renderConnections()
+    await user.type(
+      await screen.findByLabelText("Repository path"),
+      pending.requestedPath
+    )
+    await user.click(screen.getByRole("button", { name: "Connect and index" }))
+    expect(
+      await screen.findByText(/Waiting to index repository/)
+    ).toBeInTheDocument()
+
+    status = "ready"
+    expect(
+      await screen.findByRole("button", { name: "Refresh index" })
+    ).toBeEnabled()
   })
 })
 

@@ -14,10 +14,18 @@ from app.errors import PlanError
 from app.main import app
 from app.planning.analysis import StoryAnalysis
 from app.planning.graph import build_clarification_graph
-from app.planning.models import PlanQuestion, PlanSource, SubmitClarificationsRequest
+from app.planning.models import (
+    PlanQuestion,
+    PlanRevisionRequest,
+    PlanSource,
+    PlanVersionRequest,
+    SubmitClarificationsRequest,
+)
 from app.planning.store import PlanStore
 from app.planning.worker import PlanningWorker
+from app.providers.copilot import CopilotAnalysisError
 from app.services.plans import PlanService
+from tests.test_drafting import generated, ready_plan
 from tests.test_plans import story
 
 
@@ -197,3 +205,65 @@ def test_answer_endpoint_validates_and_queues_checkpoint_resume(tmp_path: Path):
     finally:
         app.dependency_overrides.pop(get_plan_service, None)
         app.dependency_overrides.pop(get_copilot_connection_service, None)
+
+
+@pytest.mark.asyncio
+async def test_generation_worker_survives_restart_and_preserves_previous_draft(
+    tmp_path: Path,
+):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'plans.db'}")
+
+    class Generator:
+        def __init__(self):
+            self.calls = []
+            self.fail = False
+
+        async def generate(self, plan, pat, *, feedback=None):
+            assert pat == "private-token"
+            self.calls.append((plan.version, plan.repositoryContext, feedback))
+            if self.fail:
+                raise CopilotAnalysisError("COPILOT_INVALID_OUTPUT", "Invalid output")
+            return generated("Revised grid" if feedback else "First grid")
+
+    generator = Generator()
+    worker = PlanningWorker(settings, provider=generator)
+    worker.credentials = FakeCredentials()
+    plan_id = ready_plan(worker.service)
+    worker.service.request_generation(
+        plan_id, PlanVersionRequest(expectedVersion=2), "draft"
+    )
+
+    restarted = PlanningWorker(settings, provider=generator)
+    restarted.credentials = FakeCredentials()
+
+    class NoRetrieval:
+        def retrieve(self, _story):
+            raise AssertionError(
+                "Generation must use pinned evidence, not a new lookup"
+            )
+
+    restarted.retriever = NoRetrieval()
+    assert await restarted.process_one(None)
+    first = restarted.service.get(plan_id)
+    assert first.revision == 1
+    assert first.functionalPlan[0].content == "First grid"
+    assert generator.calls == [(2, None, None)]
+
+    restarted.service.request_generation(
+        plan_id,
+        PlanRevisionRequest(expectedVersion=first.version, feedback="Improve the grid"),
+        "revise",
+    )
+    generator.fail = True
+    assert await restarted.process_one(None)
+    assert restarted.store.latest_run(plan_id)["status"] == "failed"
+    assert restarted.service.get(plan_id).functionalPlan[0].content == "First grid"
+
+    generator.fail = False
+    assert restarted.store.retry_run(plan_id)
+    assert await restarted.process_one(None)
+    revised = restarted.service.get(plan_id)
+    assert revised.revision == 2
+    assert revised.functionalPlan[0].content == "Revised grid"
+    assert revised.revisionHistory[0].functionalPlan[0].content == "First grid"
+    assert generator.calls[-1] == (first.version, None, "Improve the grid")

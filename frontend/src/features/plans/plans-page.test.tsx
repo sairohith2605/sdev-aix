@@ -86,18 +86,18 @@ async function createProvisionalPlan(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("plans", () => {
-  it("shows the real-mode persistence checkpoint without mock generation", async () => {
+  it("links to work items when no real-mode plans have been created", async () => {
     vi.stubEnv("MODE", "development")
     vi.stubEnv("DEV", true)
     vi.stubEnv("VITE_USE_MOCK_API", "false")
     renderAt()
 
     expect(
-      await screen.findByText(
-        "No saved plans yet. Plan creation will be available when LangGraph is connected."
-      )
+      await screen.findByText("No plans yet. Create one from a work item.")
     ).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Browse work items" })).toBeNull()
+    expect(
+      screen.getByRole("link", { name: "Browse work items" })
+    ).toHaveAttribute("href", "/work-items")
   })
 
   it("saves real-mode edits through the API without writing IndexedDB", async () => {
@@ -232,6 +232,7 @@ describe("plans", () => {
     }
     let currentPlan = plan
     let runStatus = "awaiting_input"
+    let runAction = "resume"
     server.use(
       http.get(getMockPlanUrl(), () => HttpResponse.json(currentPlan)),
       http.get(`${getMockPlanUrl()}/run`, ({ params }) =>
@@ -240,6 +241,8 @@ describe("plans", () => {
           planId: params.planId,
           status: runStatus,
           errorCode: null,
+          action: runAction,
+          baseVersion: runAction === "draft" ? 3 : null,
         })
       ),
       http.post(`${getMockPlanUrl()}/clarifications`, async ({ request }) => {
@@ -276,6 +279,45 @@ describe("plans", () => {
         }
         runStatus = "ready_for_draft"
         return HttpResponse.json(currentPlan)
+      }),
+      http.post(`${getMockPlanUrl()}/draft`, async ({ request }) => {
+        expect(await request.json()).toEqual({ expectedVersion: 3 })
+        runAction = "draft"
+        runStatus = "queued"
+        return HttpResponse.json(
+          {
+            id: "run-draft",
+            planId: plan.id,
+            action: "draft",
+            status: "queued",
+            errorCode: null,
+            baseVersion: 3,
+          },
+          { status: 202 }
+        )
+      }),
+      http.post(`${getMockPlanUrl()}/revisions`, async ({ request }) => {
+        const body = (await request.json()) as {
+          expectedVersion: number
+          feedback: string
+        }
+        expect(body).toMatchObject({
+          expectedVersion: 4,
+          feedback: "Include tests",
+        })
+        runAction = "revise"
+        runStatus = "queued"
+        return HttpResponse.json(
+          {
+            id: "run-revise",
+            planId: plan.id,
+            action: "revise",
+            status: "queued",
+            errorCode: null,
+            baseVersion: 4,
+          },
+          { status: 202 }
+        )
       })
     )
     const user = userEvent.setup()
@@ -298,6 +340,89 @@ describe("plans", () => {
     expect(
       await screen.findByText("r1-q1: HR administrators")
     ).toBeInTheDocument()
+    const draftButton = await screen.findByRole("button", {
+      name: "Generate draft",
+    })
+    expect(draftButton).toBeEnabled()
+    await user.click(draftButton)
+    expect(
+      await screen.findByText("Generating provisional draft…")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Generating draft…" })
+    ).toBeDisabled()
+    currentPlan = {
+      ...currentPlan,
+      status: "review",
+      revision: 1,
+      version: 4,
+      functionalPlan: [
+        { id: "f1", title: "Overview", content: "Employee grid" },
+      ],
+      technicalPlan: [
+        { id: "t1", title: "Implementation", content: "Test sorting" },
+      ],
+      revisionHistory: [
+        {
+          revision: 1,
+          feedback: "Initial provisional draft",
+          createdAt: "2026-09-25T12:00:00Z",
+          functionalPlan: [
+            { id: "f1", title: "Overview", content: "Employee grid" },
+          ],
+          technicalPlan: [
+            { id: "t1", title: "Implementation", content: "Test sorting" },
+          ],
+        },
+      ],
+    }
+    runStatus = "completed"
+    expect(
+      await screen.findByRole(
+        "textbox",
+        { name: "Overview" },
+        { timeout: 5000 }
+      )
+    ).toHaveValue("Employee grid")
+    expect(screen.getByText("Repository Evidence")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Request Revision" })
+    ).toBeDisabled()
+    await user.type(
+      screen.getByLabelText("What Should Change?"),
+      "Include tests"
+    )
+    await user.click(screen.getByRole("button", { name: "Request Revision" }))
+    expect(await screen.findByText(/Generating revision…/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Finalize Plan" })).toBeDisabled()
+    currentPlan = {
+      ...currentPlan,
+      revision: 2,
+      version: 5,
+      functionalPlan: [
+        { id: "f1", title: "Overview", content: "Revised employee grid" },
+      ],
+      revisionHistory: [
+        ...currentPlan.revisionHistory,
+        {
+          revision: 2,
+          feedback: "Include tests",
+          createdAt: "2026-09-25T13:00:00Z",
+          functionalPlan: [
+            { id: "f1", title: "Overview", content: "Revised employee grid" },
+          ],
+          technicalPlan: currentPlan.technicalPlan,
+        },
+      ],
+    }
+    runStatus = "completed"
+    await waitFor(
+      () =>
+        expect(screen.getByRole("textbox", { name: "Overview" })).toHaveValue(
+          "Revised employee grid"
+        ),
+      { timeout: 5000 }
+    )
   })
 
   it("accepts clarification answers and returns a deterministic follow-up", async () => {

@@ -10,6 +10,8 @@ from copilot.session_events import AssistantMessageData
 from pydantic import ValidationError
 
 from app.planning.analysis import StoryAnalysis, analysis_prompt
+from app.planning.drafting import GeneratedPlan, generation_prompt, validate_generation
+from app.planning.models import Plan
 
 
 class CopilotAnalysisError(Exception):
@@ -27,18 +29,29 @@ def _deny_tools(request: Any, invocation: dict) -> PermissionDecisionReject:
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*\n([\s\S]*?)\n```$", re.IGNORECASE)
 
 
-def _parse_analysis(content: str) -> StoryAnalysis:
+def _parse_json(content: str) -> Any:
     text = content.strip()
     match = _JSON_FENCE.fullmatch(text)
     if match:
         text = match.group(1).strip()
-    return StoryAnalysis.model_validate(json.loads(text))
+    if len(text) > 100_000:
+        raise ValueError("Response exceeds the allowed size")
+    return json.loads(text)
 
 
 def _safe_validation_reason(error: ValidationError) -> str:
     first = error.errors()[0]
     field = first["loc"][0] if first["loc"] else "root"
-    if field not in {"root", "goal", "facts", "gaps", "assumptions", "questions"}:
+    if field not in {
+        "root",
+        "goal",
+        "facts",
+        "gaps",
+        "assumptions",
+        "questions",
+        "functionalPlan",
+        "technicalPlan",
+    }:
         field = "schema"
     return f"schema {field}: {first['type']}"
 
@@ -99,6 +112,24 @@ class CopilotAnalysisProvider:
         repository_context: dict | None = None,
         prompt_override: str | None = None,
     ) -> StoryAnalysis:
+        prompt = prompt_override or analysis_prompt(work_item, repository_context)
+        return await self._request(prompt, pat, StoryAnalysis)
+
+    async def generate(
+        self, plan: Plan, pat: str, *, feedback: str | None = None
+    ) -> GeneratedPlan:
+        return await self._request(
+            generation_prompt(plan, feedback=feedback),
+            pat,
+            GeneratedPlan,
+            validate=lambda result: validate_generation(
+                result, plan, revision=feedback is not None
+            ),
+        )
+
+    async def _request(
+        self, prompt: str, pat: str, schema: Any, *, validate: Any = None
+    ) -> Any:
         if not pat.strip():
             raise CopilotAnalysisError(
                 "COPILOT_PAT_REQUIRED", "Set COPILOT_GITHUB_TOKEN to run the probe."
@@ -111,7 +142,6 @@ class CopilotAnalysisProvider:
                 "COPILOT_STORAGE_UNAVAILABLE",
                 "The backend cannot write its private Copilot runtime directory.",
             ) from None
-        prompt = prompt_override or analysis_prompt(work_item, repository_context)
         try:
             async with asyncio.timeout(self.timeout * 2 + 30):
                 async with CopilotClient(
@@ -140,11 +170,18 @@ class CopilotAnalysisProvider:
                                 response.data, AssistantMessageData
                             ):
                                 try:
-                                    return _parse_analysis(response.data.content)
+                                    result = schema.model_validate(
+                                        _parse_json(response.data.content)
+                                    )
+                                    if validate:
+                                        validate(result)
+                                    return result
                                 except json.JSONDecodeError:
                                     reason = "invalid JSON"
                                 except ValidationError as error:
                                     reason = _safe_validation_reason(error)
+                                except ValueError:
+                                    reason = "invalid or ungrounded plan output"
                             if attempt == 0:
                                 prompt = (
                                     "The previous response was not valid JSON matching "

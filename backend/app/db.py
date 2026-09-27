@@ -70,14 +70,14 @@ def initialize_plan_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(database_path, timeout=5)) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 5:
+        if version > 6:
             raise RuntimeError("This database requires a newer sdev-aix version")
-        if version == 5:
+        if version == 6:
             return
         with connection:
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 5:
+            if version > 6:
                 raise RuntimeError("This database requires a newer sdev-aix version")
             if version < 1:
                 connection.execute(
@@ -225,3 +225,39 @@ def initialize_plan_schema(database_path: Path) -> None:
                     """
                 )
                 connection.execute("PRAGMA user_version = 5")
+            if version < 6:
+                connection.execute(
+                    """
+                    CREATE TABLE plan_runs_v6 (
+                        id TEXT PRIMARY KEY,
+                        plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+                        action TEXT NOT NULL CHECK (
+                            action IN ('analyze', 'resume', 'draft', 'revise')
+                        ),
+                        round_id TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL CHECK (status IN (
+                            'queued', 'running', 'awaiting_input', 'ready_for_draft',
+                            'completed', 'failed'
+                        )),
+                        error_code TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        base_version INTEGER,
+                        input_payload TEXT NOT NULL DEFAULT '{}',
+                        UNIQUE (plan_id, action, round_id)
+                    )
+                    """
+                )
+                connection.execute(
+                    """INSERT INTO plan_runs_v6
+                       (id, plan_id, action, round_id, status, error_code,
+                        created_at, updated_at)
+                       SELECT id, plan_id, action, round_id, status, error_code,
+                              created_at, updated_at FROM plan_runs"""
+                )
+                connection.execute("DROP TABLE plan_runs")
+                connection.execute("ALTER TABLE plan_runs_v6 RENAME TO plan_runs")
+                connection.execute(
+                    "CREATE INDEX plan_runs_status_idx ON plan_runs(status, created_at)"
+                )
+                connection.execute("PRAGMA user_version = 6")

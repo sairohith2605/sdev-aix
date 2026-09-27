@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import pytest
 from copilot.session_events import AssistantMessageData
 
+from app.planning.models import PlanSource
+from app.planning.store import PlanStore
 from app.providers import copilot
+from app.services.plans import PlanService
+from tests.test_plans import story
 
 
 def valid_analysis() -> dict:
@@ -199,3 +203,63 @@ async def test_missing_pat_is_reported_before_starting_a_client(
 
     assert error.value.code == "COPILOT_PAT_REQUIRED"
     assert not provider.data_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_draft_uses_pinned_input_and_denies_tools(monkeypatch, tmp_path: Path):
+    service = PlanService(PlanStore(tmp_path / "plans.db"))
+    plan = service.create_from_story(
+        story(), PlanSource(organization="a", projectId="b"), []
+    )
+    provider, client = fake_provider(
+        monkeypatch,
+        tmp_path,
+        [
+            json.dumps(
+                {
+                    "functionalPlan": [
+                        {"id": "f1", "title": "Overview", "content": "Show a grid"}
+                    ],
+                    "technicalPlan": [
+                        {"id": "t1", "title": "Implementation", "content": "Test it"}
+                    ],
+                }
+            )
+        ],
+    )
+    result = await provider.generate(plan, "secret-pat")
+    assert result.technicalPlan[0].content == "Test it"
+    assert client.session_options["available_tools"] == []
+    assert client.session_options["enable_skills"] is False
+    assert "secret-pat" not in client.session.prompts[0]
+    assert '"repositoryContext": null' in client.session.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_draft_rejects_unpinned_evidence_without_exposing_output(
+    monkeypatch, tmp_path: Path
+):
+    service = PlanService(PlanStore(tmp_path / "plans.db"))
+    plan = service.create_from_story(
+        story(), PlanSource(organization="a", projectId="b"), []
+    )
+    invalid = json.dumps(
+        {
+            "functionalPlan": [
+                {
+                    "id": "f1",
+                    "title": "Overview",
+                    "content": "secret-value [evidence:made-up]",
+                }
+            ],
+            "technicalPlan": [
+                {"id": "t1", "title": "Implementation", "content": "Test it"}
+            ],
+        }
+    )
+    provider, client = fake_provider(monkeypatch, tmp_path, [invalid, invalid])
+    with pytest.raises(copilot.CopilotAnalysisError) as error:
+        await provider.generate(plan, "secret-pat")
+    assert error.value.code == "COPILOT_INVALID_OUTPUT"
+    assert "secret-value" not in str(error.value)
+    assert len(client.session.prompts) == 2

@@ -39,6 +39,7 @@ import {
   updatePlan,
 } from "@/features/plans/api"
 import { exportPlanZip } from "@/features/plans/export"
+import { RepositoryEvidenceCard } from "@/features/plans/repository-evidence-card"
 import type {
   Plan,
   PlanAnswer,
@@ -157,6 +158,8 @@ function ClarificationFlow({
   error,
   isSubmitting,
   isGeneratingDraft,
+  isGenerationRunning,
+  draftError,
   allSubmitted,
   showRepositoryStatus,
   onAnswerChange,
@@ -174,6 +177,8 @@ function ClarificationFlow({
   error: string | null
   isSubmitting: boolean
   isGeneratingDraft: boolean
+  isGenerationRunning: boolean
+  draftError: string | null
   allSubmitted: boolean
   showRepositoryStatus: boolean
   onAnswerChange: (questionId: string, value: string) => void
@@ -196,68 +201,7 @@ function ClarificationFlow({
         </div>
 
         {plan.repositoryContext ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Repository Evidence</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <p>
-                Questions are grounded in {plan.repositoryContext.snapshot.name}{" "}
-                at{" "}
-                <code>
-                  {plan.repositoryContext.snapshot.commitSha.slice(0, 12)}
-                </code>
-                {plan.repositoryContext.snapshot.dirty
-                  ? " plus explicitly included uncommitted changes."
-                  : "."}
-              </p>
-              <p className="text-muted-foreground">
-                {plan.repositoryContext.profile}
-              </p>
-              {plan.repositoryContext.evidence.length ? (
-                <details>
-                  <summary className="cursor-pointer font-medium">
-                    Evidence shared with Copilot (
-                    {plan.repositoryContext.evidence.length})
-                  </summary>
-                  <ul className="mt-3 space-y-3">
-                    {plan.repositoryContext.evidence.map((evidence) => (
-                      <li
-                        className="rounded-md border p-3"
-                        key={evidence.chunkId}
-                      >
-                        <p className="font-mono text-xs break-all">
-                          {evidence.path}:{evidence.startLine}-
-                          {evidence.endLine}
-                          {evidence.symbol ? ` · ${evidence.symbol}` : ""}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {evidence.reason}
-                        </p>
-                        <p className="mt-1 font-mono text-xs text-muted-foreground">
-                          content {evidence.contentHash.slice(0, 12)} · snapshot{" "}
-                          {evidence.snapshotId.slice(0, 20)}
-                        </p>
-                        <details className="mt-2">
-                          <summary className="cursor-pointer text-xs font-medium">
-                            View excerpt
-                          </summary>
-                          <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
-                            <code>{evidence.excerpt}</code>
-                          </pre>
-                        </details>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ) : (
-                <p className="text-muted-foreground">
-                  No directly relevant code fragments were found. The agent used
-                  only the repository profile and story.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+          <RepositoryEvidenceCard context={plan.repositoryContext} />
         ) : showRepositoryStatus && plan.analysis ? (
           <Card>
             <CardHeader>
@@ -314,7 +258,7 @@ function ClarificationFlow({
           </Card>
         ) : null}
 
-        {run?.status === "failed" ? (
+        {run?.status === "failed" && run.action !== "draft" ? (
           <Alert variant="destructive">
             <AlertTitle>Analysis paused</AlertTitle>
             <AlertDescription>
@@ -327,7 +271,30 @@ function ClarificationFlow({
           </Alert>
         ) : null}
 
+        {draftError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {draftError}
+          </p>
+        ) : null}
+        {run?.action === "draft" && run.status === "failed" ? (
+          <Alert variant="destructive">
+            <AlertTitle>Draft generation paused</AlertTitle>
+            <AlertDescription>
+              {run.errorCode ?? "Copilot could not generate the draft."} Your
+              answers are saved.
+            </AlertDescription>
+            <Button disabled={isRetrying} onClick={onRetry} variant="outline">
+              Retry draft
+            </Button>
+          </Alert>
+        ) : null}
+        {isGenerationRunning && run?.action === "draft" ? (
+          <p className="text-sm" role="status">
+            Generating provisional draft…
+          </p>
+        ) : null}
         {!agentAvailable &&
+        !isGenerationRunning &&
         (run?.status === "queued" ||
           run?.status === "running" ||
           run?.status === "awaiting_input" ||
@@ -426,15 +393,20 @@ function ClarificationFlow({
                     : "Analysis is complete. Provisional draft generation is the next planning step."}
               </p>
               <Button
-                disabled={isGeneratingDraft || !agentAvailable}
+                disabled={
+                  isGeneratingDraft || isGenerationRunning || !agentAvailable
+                }
                 onClick={onGenerateDraft}
               >
-                {isGeneratingDraft ? "Generating draft…" : "Generate draft"}
+                {isGeneratingDraft || isGenerationRunning
+                  ? "Generating draft…"
+                  : "Generate draft"}
               </Button>
               {!agentAvailable ? (
                 <p className="text-xs text-muted-foreground">
-                  Functional and technical draft generation is the next agent
-                  workflow step.
+                  {run?.action === "draft" && run.status === "failed"
+                    ? "Retry the failed draft above. Your answers remain saved."
+                    : "Wait for the clarification run to finish before generating a draft."}
                 </p>
               ) : null}
             </CardContent>
@@ -503,6 +475,10 @@ function ConversationHistory({ plan }: { plan: Plan }) {
 function ReviewWorkflow({
   plan,
   agentAvailable,
+  run,
+  isRetrying,
+  onRetry,
+  isGenerationRunning,
   isDirty,
   revisionFeedback,
   revisionError,
@@ -517,6 +493,10 @@ function ReviewWorkflow({
 }: {
   plan: Plan
   agentAvailable: boolean
+  run: PlanRun | null | undefined
+  isRetrying: boolean
+  onRetry: () => void
+  isGenerationRunning: boolean
   isDirty: boolean
   revisionFeedback: string
   revisionError: string | null
@@ -533,20 +513,55 @@ function ReviewWorkflow({
   onFinalize: () => void
   onReopen: () => void
 }) {
-  const readOnly = plan.status === "finalized"
+  const isFinalized = plan.status === "finalized"
+  const readOnly = isFinalized || isGenerationRunning
+  const canRetryRevision =
+    run?.baseVersion == null || run.baseVersion === plan.version
 
   return (
     <div className="space-y-6">
+      {plan.repositoryContext ? (
+        <RepositoryEvidenceCard context={plan.repositoryContext} />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Story-only plan: no repository evidence was pinned.
+        </p>
+      )}
+      {isGenerationRunning && run?.action === "revise" ? (
+        <p role="status">
+          Generating revision… Your current draft is preserved.
+        </p>
+      ) : null}
+      {run?.action === "revise" && run.status === "failed" ? (
+        <Alert variant="destructive">
+          <AlertTitle>Revision generation paused</AlertTitle>
+          <AlertDescription>
+            {run.errorCode ?? "Copilot could not revise the plan."} The previous
+            draft is unchanged.
+            {run.feedback ? ` Requested change: ${run.feedback}` : ""}
+            {!canRetryRevision
+              ? " The plan has changed; request a new revision instead."
+              : ""}
+          </AlertDescription>
+          {canRetryRevision ? (
+            <Button disabled={isRetrying} onClick={onRetry} variant="outline">
+              Retry revision
+            </Button>
+          ) : null}
+        </Alert>
+      ) : null}
       <Alert>
         <AlertTitle>
-          {readOnly
+          {isFinalized
             ? "Finalized Plan"
             : `Provisional Draft · Revision ${plan.revision}`}
         </AlertTitle>
         <AlertDescription>
-          {readOnly
+          {isFinalized
             ? `Approved ${plan.finalizedAt ? new Date(plan.finalizedAt).toLocaleString() : ""}. Reopen the plan to make changes.`
-            : "Review both plans, edit sections directly, or request a revision. The plan is not final until you approve it."}
+            : isGenerationRunning
+              ? "Generation is in progress. Your current draft is preserved until the new revision is ready."
+              : "Review both plans, edit sections directly, or request a revision. The plan is not final until you approve it."}
         </AlertDescription>
       </Alert>
 
@@ -574,7 +589,7 @@ function ReviewWorkflow({
           aria-label="Plan Actions and Conversation"
           className="flex flex-col gap-6"
         >
-          {readOnly ? (
+          {isFinalized ? (
             <Card>
               <CardHeader>
                 <CardTitle>Approval Actions</CardTitle>
@@ -612,7 +627,7 @@ function ReviewWorkflow({
                     </p>
                   ) : null}
                   <Button
-                    disabled={isFinalizing || isDirty}
+                    disabled={isFinalizing || isDirty || isGenerationRunning}
                     onClick={onFinalize}
                   >
                     {isFinalizing ? "Finalizing…" : "Finalize Plan"}
@@ -632,7 +647,7 @@ function ReviewWorkflow({
                     What Should Change?
                   </label>
                   <Textarea
-                    disabled={!agentAvailable}
+                    disabled={!agentAvailable || isGenerationRunning}
                     id="revision-feedback"
                     onChange={(event) =>
                       onRevisionFeedbackChange(event.target.value)
@@ -657,6 +672,7 @@ function ReviewWorkflow({
                     disabled={
                       !agentAvailable ||
                       isRequestingRevision ||
+                      isGenerationRunning ||
                       isDirty ||
                       !revisionFeedback.trim()
                     }
@@ -667,8 +683,7 @@ function ReviewWorkflow({
                   </Button>
                   {!agentAvailable ? (
                     <p className="text-xs text-muted-foreground">
-                      Agent revisions will be available when LangGraph is
-                      connected.
+                      Agent revisions are unavailable in this mode.
                     </p>
                   ) : null}
                 </CardContent>
@@ -723,8 +738,22 @@ export function PlanDetailPage() {
 
   const runQuery = useQuery({
     queryKey: ["plan-run", planId],
-    queryFn: ({ signal }) => getPlanRun(planId ?? "", signal),
-    enabled: !mockMode && Boolean(planId) && plan?.status === "clarifying",
+    queryFn: async ({ signal }) => {
+      try {
+        return await getPlanRun(planId ?? "", signal)
+      } catch (failure) {
+        if (
+          plan?.status === "review" &&
+          failure &&
+          typeof failure === "object" &&
+          "status" in failure &&
+          failure.status === 404
+        )
+          return null
+        throw failure
+      }
+    },
+    enabled: !mockMode && Boolean(planId) && plan?.status !== "finalized",
     refetchInterval: (query) =>
       query.state.data?.status === "queued" ||
       query.state.data?.status === "running"
@@ -739,7 +768,8 @@ export function PlanDetailPage() {
   useEffect(() => {
     if (
       runQuery.data?.status === "awaiting_input" ||
-      runQuery.data?.status === "ready_for_draft"
+      runQuery.data?.status === "ready_for_draft" ||
+      runQuery.data?.status === "completed"
     ) {
       void queryClient.invalidateQueries({ queryKey: ["plan", planId] })
     }
@@ -787,9 +817,11 @@ export function PlanDetailPage() {
   })
 
   const draftMutation = useMutation({
-    mutationFn: () => generateDraft(planId ?? ""),
-    onSuccess: (updatedPlan) => {
-      queryClient.setQueryData(["plan", planId], updatedPlan)
+    mutationFn: () => generateDraft(planId ?? "", plan?.version ?? 1),
+    onSuccess: (result) => {
+      if ("planId" in result)
+        queryClient.setQueryData(["plan-run", planId], result)
+      else queryClient.setQueryData(["plan", planId], result)
       void queryClient.invalidateQueries({ queryKey: ["plans"] })
     },
   })
@@ -804,15 +836,18 @@ export function PlanDetailPage() {
         throw new Error("Add feedback before requesting a revision.")
       }
       const updated = await revisePlan(plan.id, {
+        expectedVersion: plan.version,
         feedback: revisionFeedback,
         functionalPlan: plan.functionalPlan,
         technicalPlan: plan.technicalPlan,
       })
-      if (mockMode) await savePlan(updated)
+      if (mockMode && "workItemId" in updated) await savePlan(updated)
       return updated
     },
-    onSuccess: (updatedPlan) => {
-      queryClient.setQueryData(["plan", planId], updatedPlan)
+    onSuccess: (result) => {
+      if ("planId" in result)
+        queryClient.setQueryData(["plan-run", planId], result)
+      else queryClient.setQueryData(["plan", planId], result)
       void queryClient.invalidateQueries({ queryKey: ["plans"] })
       setRevisionFeedback("")
       setRevisionError(null)
@@ -945,6 +980,10 @@ export function PlanDetailPage() {
   const allClarificationsSubmitted =
     (plan.clarificationRounds.length > 0 && !currentRound) ||
     (!mockMode && runQuery.data?.status === "ready_for_draft")
+  const isGenerationRunning =
+    !mockMode &&
+    (runQuery.data?.action === "draft" || runQuery.data?.action === "revise") &&
+    (runQuery.data?.status === "queued" || runQuery.data?.status === "running")
 
   const submitCurrentRound = () => {
     if (!currentRound) return
@@ -1010,7 +1049,9 @@ export function PlanDetailPage() {
           </Button>
           {plan.status === "review" ? (
             <Button
-              disabled={saveMutation.isPending || !isDirty}
+              disabled={
+                saveMutation.isPending || !isDirty || isGenerationRunning
+              }
               onClick={() => saveMutation.mutate(plan)}
               size="sm"
             >
@@ -1076,9 +1117,17 @@ export function PlanDetailPage() {
         </p>
       ) : null}
 
+      {retryMutation.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {retryMutation.error instanceof Error
+            ? retryMutation.error.message
+            : "Could not retry the run."}
+        </p>
+      ) : null}
+
       <PlanDetailHeader plan={plan} fromWorkItem={fromWorkItem} />
 
-      {!mockMode && runQuery.isError && plan.status === "clarifying" ? (
+      {!mockMode && runQuery.isError && plan.status !== "finalized" ? (
         <Alert variant="destructive">
           <AlertTitle>Could not load analysis status</AlertTitle>
           <AlertDescription>
@@ -1094,9 +1143,11 @@ export function PlanDetailPage() {
       {plan.status === "clarifying" ? (
         <ClarificationFlow
           agentAvailable={
-            mockMode || runQuery.data?.status === "awaiting_input"
+            mockMode ||
+            runQuery.data?.status === "awaiting_input" ||
+            runQuery.data?.status === "ready_for_draft"
           }
-          run={mockMode ? undefined : runQuery.data}
+          run={mockMode ? undefined : (runQuery.data ?? undefined)}
           isRetrying={retryMutation.isPending}
           onRetry={() => retryMutation.mutate()}
           allSubmitted={allClarificationsSubmitted}
@@ -1106,6 +1157,14 @@ export function PlanDetailPage() {
           currentRound={currentRound}
           error={answerError}
           isGeneratingDraft={draftMutation.isPending}
+          isGenerationRunning={isGenerationRunning}
+          draftError={
+            draftMutation.isError
+              ? draftMutation.error instanceof Error
+                ? draftMutation.error.message
+                : "Could not queue draft."
+              : null
+          }
           isSubmitting={clarificationMutation.isPending}
           onAnswerChange={(questionId, value) =>
             setAnswers((previous) => ({
@@ -1127,7 +1186,11 @@ export function PlanDetailPage() {
         />
       ) : (
         <ReviewWorkflow
-          agentAvailable={mockMode}
+          agentAvailable={true}
+          run={mockMode ? undefined : runQuery.data}
+          isRetrying={retryMutation.isPending}
+          onRetry={() => retryMutation.mutate()}
+          isGenerationRunning={isGenerationRunning}
           isDirty={isDirty}
           isFinalizing={finalizeMutation.isPending}
           isReopening={reopenMutation.isPending}

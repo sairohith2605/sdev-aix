@@ -17,6 +17,7 @@ import {
   createPlanRequestSchema,
   planSchema,
   planRunSchema,
+  requestPlanDraftRequestSchema,
   persistPlanRequestSchema,
   requestPlanRevisionRequestSchema,
   submitClarificationAnswersRequestSchema,
@@ -453,6 +454,33 @@ async function postPlanAction(
   return planSchema.parse(await response.json())
 }
 
+async function postGenerationAction(
+  planId: string,
+  action: "draft" | "revisions",
+  body: unknown,
+  signal?: AbortSignal
+): Promise<Plan | PlanRun> {
+  const response = await fetch(new URL(`${getPlanUrl(planId)}/${action}`), {
+    method: "POST",
+    signal,
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    let errorBody: unknown
+    try {
+      errorBody = await response.clone().json()
+    } catch {
+      // ignore invalid error bodies
+    }
+    throw parseApiError(response, errorBody)
+  }
+  const bodyResponse: unknown = await response.json()
+  return response.status === 202
+    ? planRunSchema.parse(bodyResponse)
+    : planSchema.parse(bodyResponse)
+}
+
 export async function submitPlanClarifications(
   planId: string,
   request: SubmitClarificationAnswersRequest,
@@ -464,18 +492,24 @@ export async function submitPlanClarifications(
 
 export async function generatePlanDraft(
   planId: string,
+  expectedVersion: number,
   signal?: AbortSignal
-): Promise<Plan> {
-  return postPlanAction(planId, "draft", undefined, signal)
+): Promise<Plan | PlanRun> {
+  return postGenerationAction(
+    planId,
+    "draft",
+    requestPlanDraftRequestSchema.parse({ expectedVersion }),
+    signal
+  )
 }
 
 export async function requestPlanRevision(
   planId: string,
   request: RequestPlanRevisionRequest,
   signal?: AbortSignal
-): Promise<Plan> {
+): Promise<Plan | PlanRun> {
   const validated = requestPlanRevisionRequestSchema.parse(request)
-  return postPlanAction(planId, "revisions", validated, signal)
+  return postGenerationAction(planId, "revisions", validated, signal)
 }
 
 export async function finalizePlan(

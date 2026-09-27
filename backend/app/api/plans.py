@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -10,6 +12,7 @@ from app.dependencies import (
 from app.errors import ConnectorError, PlanError, raise_http_error
 from app.planning.models import (
     Plan,
+    PlanRevisionRequest,
     PlanSource,
     PlanVersionRequest,
     SavePlanRequest,
@@ -120,16 +123,46 @@ def submit_clarifications(
         return raise_http_error(error)
 
 
-@router.post("/{plan_id}/draft")
-@router.post("/{plan_id}/revisions")
-def agent_action_not_ready(plan_id: str):
-    return raise_http_error(
-        PlanError(
-            "Draft and revision generation are not available in this workflow slice.",
-            503,
-            "PLANNER_DRAFT_NOT_READY",
+def _run_response(plan_id: str, run: dict) -> dict:
+    return {
+        "id": run["id"],
+        "planId": plan_id,
+        "status": run["status"],
+        "errorCode": run["error_code"],
+        "action": run["action"],
+        "baseVersion": run["base_version"],
+        "feedback": json.loads(run["input_payload"]).get("feedback")
+        if run["action"] == "revise"
+        else None,
+    }
+
+
+@router.post("/{plan_id}/draft", status_code=202)
+def generate_draft(
+    plan_id: str,
+    request: PlanVersionRequest,
+    service: PlanService = Depends(get_plan_service),
+):
+    try:
+        return _run_response(
+            plan_id, service.request_generation(plan_id, request, "draft")
         )
-    )
+    except PlanError as error:
+        return raise_http_error(error)
+
+
+@router.post("/{plan_id}/revisions", status_code=202)
+def request_revision(
+    plan_id: str,
+    request: PlanRevisionRequest,
+    service: PlanService = Depends(get_plan_service),
+):
+    try:
+        return _run_response(
+            plan_id, service.request_generation(plan_id, request, "revise")
+        )
+    except PlanError as error:
+        return raise_http_error(error)
 
 
 @router.get("/{plan_id}/run")
@@ -139,12 +172,7 @@ def run_status(plan_id: str, service: PlanService = Depends(get_plan_service)):
         run = service.store.latest_run(plan_id)
         if run is None:
             raise PlanError("Plan run not found.", 404, "PLAN_RUN_NOT_FOUND")
-        return {
-            "id": run["id"],
-            "planId": plan_id,
-            "status": run["status"],
-            "errorCode": run["error_code"],
-        }
+        return _run_response(plan_id, run)
     except PlanError as error:
         return raise_http_error(error)
 

@@ -74,16 +74,17 @@ export async function submitClarifications(
 
 export async function generateDraft(
   planId: string,
+  expectedVersion: number,
   signal?: AbortSignal
-): Promise<Plan> {
-  return generatePlanDraft(planId, signal)
+): Promise<Plan | PlanRun> {
+  return generatePlanDraft(planId, expectedVersion, signal)
 }
 
 export async function revisePlan(
   planId: string,
   request: RequestPlanRevisionRequest,
   signal?: AbortSignal
-): Promise<Plan> {
+): Promise<Plan | PlanRun> {
   return requestPlanRevision(planId, request, signal)
 }
 

@@ -4,8 +4,12 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
+import tree_sitter_c_sharp
+import tree_sitter_go
+import tree_sitter_java
 import tree_sitter_javascript
 import tree_sitter_python
+import tree_sitter_rust
 import tree_sitter_typescript
 from dulwich import porcelain
 from dulwich.repo import Repo
@@ -15,25 +19,49 @@ from app.codebase.models import IndexedChunk, IndexedFile, RepositoryIndex
 from app.errors import RepositoryError
 
 _LANGUAGES = {
+    ".cs": ("csharp", Language(tree_sitter_c_sharp.language())),
+    ".go": ("go", Language(tree_sitter_go.language())),
+    ".java": ("java", Language(tree_sitter_java.language())),
     ".py": ("python", Language(tree_sitter_python.language())),
+    ".rs": ("rust", Language(tree_sitter_rust.language())),
     ".js": ("javascript", Language(tree_sitter_javascript.language())),
     ".jsx": ("javascript", Language(tree_sitter_javascript.language())),
     ".ts": ("typescript", Language(tree_sitter_typescript.language_typescript())),
     ".tsx": ("tsx", Language(tree_sitter_typescript.language_tsx())),
 }
 _TEXT_EXTENSIONS = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cshtml",
+    ".csproj",
     ".css",
     ".graphql",
+    ".h",
+    ".hpp",
     ".html",
     ".json",
+    ".kt",
+    ".kts",
     ".md",
+    ".php",
+    ".props",
+    ".razor",
+    ".rb",
     ".scss",
+    ".sh",
+    ".sql",
+    ".swift",
+    ".targets",
     ".toml",
+    ".vue",
+    ".xml",
     ".yaml",
     ".yml",
 }
 _MANIFEST_NAMES = {
     "dockerfile",
+    "global.json",
     "compose.yaml",
     "compose.yml",
     "package.json",
@@ -45,6 +73,7 @@ _DENIED_NAMES = {
     ".env",
     ".env.local",
     "credentials.json",
+    "config.php",
     "id_rsa",
     "id_ed25519",
     "mockserviceworker.js",
@@ -70,20 +99,52 @@ _DENIED_PARTS = {
 _SYMBOL_TYPES = {
     "class_declaration": "class",
     "class_definition": "class",
+    "constructor_declaration": "constructor",
     "enum_declaration": "enum",
+    "enum_item": "enum",
     "function_declaration": "function",
     "function_definition": "function",
+    "function_item": "function",
     "generator_function_declaration": "function",
     "interface_declaration": "interface",
+    "method_declaration": "method",
+    "mod_item": "module",
+    "record_declaration": "record",
+    "struct_declaration": "struct",
+    "struct_item": "struct",
+    "trait_item": "trait",
+    "type_declaration": "type",
     "type_alias_declaration": "type",
+    "type_spec": "type",
 }
 _IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_]{1,}")
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _IMPORT_LINE = re.compile(
-    r"^\s*(?:from\s+[^\s]+\s+import\s+|import\s+|.*?require\s*\()(.+)$",
+    r"^\s*(?:from\s+[^\s]+\s+import\s+|import\s+|using\s+|use\s+|.*?require\s*\()(.+)$",
     re.MULTILINE,
 )
 _MAX_CHUNK_CHARS = 6_000
+_MAX_FILE_CHUNKS = 20
+_NESTED_CONTAINERS = {
+    "class_body",
+    "declaration_list",
+    "namespace_declaration",
+    "file_scoped_namespace_declaration",
+    "class_declaration",
+    "record_declaration",
+    "struct_declaration",
+    "interface_declaration",
+    "enum_declaration",
+    "method_declaration",
+    "type_declaration",
+    "type_spec",
+    "impl_item",
+    "trait_item",
+    "mod_item",
+    "block",
+    "source_file",
+    "program",
+}
 
 
 def _decode_path(value: bytes | str) -> str:
@@ -99,6 +160,7 @@ def _is_allowed(path: Path) -> bool:
         return False
     if (
         name.startswith(".env")
+        or (name.startswith("appsettings.") and name.endswith(".json"))
         or name in _DENIED_NAMES
         or path.suffix.casefold() in _DENIED_SUFFIXES
     ):
@@ -157,6 +219,52 @@ def _top_level_nodes(root: Node) -> Iterable[Node]:
             yield node
 
 
+def _declaration_nodes(root: Node) -> Iterable[Node]:
+    stack = list(reversed(root.named_children))
+    count = 0
+    while stack and count < 100:
+        node = stack.pop()
+        if node.type in _SYMBOL_TYPES:
+            count += 1
+            yield node
+        if node.type in _NESTED_CONTAINERS:
+            stack.extend(reversed(node.named_children))
+
+
+def _text_chunks(relative_path: str, content: str, imports: str) -> list[IndexedChunk]:
+    chunks: list[IndexedChunk] = []
+    lines = content.splitlines(keepends=True)
+    start = 1
+    position = 0
+    while position < len(lines) and len(chunks) < _MAX_FILE_CHUNKS:
+        size = 0
+        end = position
+        while end < len(lines) and size + len(lines[end]) <= _MAX_CHUNK_CHARS:
+            size += len(lines[end])
+            end += 1
+        if end == position:
+            end += 1
+        chunks.append(
+            _chunk(
+                relative_path,
+                Path(relative_path).suffix.casefold().removeprefix(".") or "text",
+                None,
+                "file",
+                start,
+                end,
+                "".join(lines[position:end]),
+                imports,
+            )
+        )
+        position = end
+        start = end + 1
+    if not chunks:
+        chunks.append(
+            _chunk(relative_path, "text", None, "file", 1, 1, content, imports)
+        )
+    return chunks
+
+
 def _chunk(
     relative_path: str,
     language: str,
@@ -205,19 +313,7 @@ def _parse_file(
     )
     language_entry = _LANGUAGES.get(suffix)
     if not language_entry:
-        language = suffix.removeprefix(".") or "text"
-        return [
-            _chunk(
-                relative_path,
-                language,
-                None,
-                "file",
-                1,
-                max(1, len(content.splitlines())),
-                content,
-                imports,
-            )
-        ]
+        return _text_chunks(relative_path, content, imports)
 
     language, grammar = language_entry
     source = content.encode("utf-8")
@@ -235,7 +331,12 @@ def _parse_file(
             imports,
         )
     ]
-    for node in _top_level_nodes(tree.root_node):
+    nodes = (
+        _declaration_nodes(tree.root_node)
+        if suffix in {".cs", ".java", ".go", ".rs"}
+        else _top_level_nodes(tree.root_node)
+    )
+    for node in nodes:
         named = _named_node(node, source)
         if not named:
             continue
@@ -377,6 +478,7 @@ class RepositoryIndexer:
                 dirty=dirty,
                 indexed_at=datetime.now(UTC),
                 file_count=file_count,
+                skipped_file_count=len(candidates) - file_count,
                 files=files,
                 chunks=chunks,
             )

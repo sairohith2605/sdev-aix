@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -86,6 +87,103 @@ def test_indexes_symbols_and_retrieves_diverse_story_evidence(tmp_path: Path):
     assert "package-lock.json" not in indexed_paths
 
 
+def test_indexes_aspnet_controllers_models_and_additional_languages(tmp_path: Path):
+    repository = create_repository(tmp_path / "application")
+    for directory in ("Controllers", "Models", "cmd"):
+        (repository / directory).mkdir()
+    (repository / "Controllers" / "EmployeesController.cs").write_text(
+        "using Company.Models;\nnamespace Company.Controllers {\n"
+        "public class EmployeesController {\n"
+        "  public Employee GetEmployee(int id) { return null; }\n} }\n",
+        encoding="utf-8",
+    )
+    (repository / "Models" / "Employee.cs").write_text(
+        "namespace Company.Models;\npublic record Employee(int Id, string Name);\n",
+        encoding="utf-8",
+    )
+    (repository / "application.csproj").write_text(
+        '<Project Sdk="Microsoft.NET.Sdk.Web" />', encoding="utf-8"
+    )
+    (repository / "appsettings.Production.json").write_text(
+        '{"ConnectionStrings":{"Default":"private"}}', encoding="utf-8"
+    )
+    (repository / "cmd" / "main.go").write_text(
+        "package main\nfunc ListEmployees() {}\n", encoding="utf-8"
+    )
+    (repository / "src" / "Employee.java").write_text(
+        'public class Employee { public String getName() { return "x"; } }',
+        encoding="utf-8",
+    )
+    (repository / "src" / "lib.rs").write_text(
+        "pub struct Employee { name: String }\npub fn list_employees() {}\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "Employees.kt").write_text(
+        "class Employees { fun list() = emptyList<String>() }",
+        encoding="utf-8",
+    )
+    (repository / "unknown.datafmt").write_text("Employee secret?", encoding="utf-8")
+    porcelain.add(repository)
+    porcelain.commit(
+        repository, message=b"more languages", author=b"Test <test@example.com>"
+    )
+
+    index = RepositoryIndexer().inspect(repository, include_uncommitted=False)
+    by_path = {
+        path: [chunk for chunk in index.chunks if chunk.path == path]
+        for path in (file.path for file in index.files)
+    }
+    assert {
+        "Controllers/EmployeesController.cs",
+        "Models/Employee.cs",
+        "application.csproj",
+        "cmd/main.go",
+        "src/Employee.java",
+        "src/lib.rs",
+        "src/Employees.kt",
+    } <= by_path.keys()
+    assert [
+        (chunk.symbol, chunk.kind)
+        for chunk in by_path["Controllers/EmployeesController.cs"]
+        if chunk.symbol
+    ] == [("EmployeesController", "class"), ("GetEmployee", "method")]
+    assert any(chunk.symbol == "Employee" for chunk in by_path["Models/Employee.cs"])
+    assert any(chunk.symbol == "getName" for chunk in by_path["src/Employee.java"])
+    assert any(chunk.symbol == "ListEmployees" for chunk in by_path["cmd/main.go"])
+    assert any(chunk.symbol == "list_employees" for chunk in by_path["src/lib.rs"])
+    assert "appsettings.Production.json" not in by_path
+    assert index.skipped_file_count >= 4  # unknown, lockfile and secret-like files
+
+    store = RepositoryStore(tmp_path / "plans.db")
+    store.save_index(index)
+    context = RepositoryRetriever(store).retrieve(
+        {
+            "title": "Get employee via EmployeesController",
+            "description": "Find the employee controller and model",
+            "acceptanceCriteria": "Return an employee by id",
+        }
+    )
+    assert context is not None
+    assert any(evidence.path.endswith(".cs") for evidence in context.evidence)
+    assert "csharp" in context.profile
+
+
+def test_fallback_chunks_reach_beyond_first_six_thousand_characters(tmp_path: Path):
+    repository = create_repository(tmp_path / "application")
+    (repository / "service.php").write_text(
+        "// placeholder\n" * 500 + "function employee_directory() {}\n",
+        encoding="utf-8",
+    )
+    porcelain.add(repository)
+    porcelain.commit(repository, message=b"php", author=b"Test <test@example.com>")
+    index = RepositoryIndexer().inspect(repository, include_uncommitted=False)
+    chunks = [chunk for chunk in index.chunks if chunk.path == "service.php"]
+    assert len(chunks) > 1
+    assert chunks[-1].start_line > 1
+    assert "employee_directory" in chunks[-1].content
+    assert all(len(chunk.content) <= 6000 for chunk in chunks)
+
+
 def test_dirty_repository_requires_explicit_consent(tmp_path: Path):
     repository = create_repository(tmp_path / "repository")
     (repository / "src" / "employees.py").write_text(
@@ -145,6 +243,30 @@ def test_unchanged_files_reuse_cached_symbol_chunks(tmp_path: Path, monkeypatch)
     )
 
     assert second.chunks == first.chunks
+
+
+def test_legacy_index_reparses_files_after_language_upgrade(
+    tmp_path: Path, monkeypatch
+):
+    repository = create_repository(tmp_path / "repository")
+    store = RepositoryStore(tmp_path / "plans.db")
+    indexer = RepositoryIndexer()
+    store.save_index(indexer.inspect(repository, include_uncommitted=False))
+    with sqlite3.connect(store.database_path) as connection:
+        connection.execute("UPDATE repository_connection SET index_version = 1")
+    assert store.cached_files() == {}
+    parsed: list[str] = []
+    original = indexer_module._parse_file
+
+    def track(relative_path, *args):
+        parsed.append(relative_path)
+        return original(relative_path, *args)
+
+    monkeypatch.setattr(indexer_module, "_parse_file", track)
+    indexer.inspect(
+        repository, include_uncommitted=False, cached_files=store.cached_files()
+    )
+    assert "src/employees.py" in parsed
 
 
 def test_repository_service_rejects_paths_outside_allowed_root(tmp_path: Path):

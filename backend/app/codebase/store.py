@@ -118,8 +118,9 @@ class RepositoryStore:
                     """
                     INSERT INTO repository_connection (
                         id, root_path, name, branch, commit_sha, snapshot_id,
-                        dirty, indexed_at, file_count, chunk_count
-                    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        dirty, indexed_at, file_count, chunk_count,
+                        skipped_file_count, index_version
+                    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
                     ON CONFLICT(id) DO UPDATE SET
                         root_path = excluded.root_path,
                         name = excluded.name,
@@ -129,7 +130,9 @@ class RepositoryStore:
                         dirty = excluded.dirty,
                         indexed_at = excluded.indexed_at,
                         file_count = excluded.file_count,
-                        chunk_count = excluded.chunk_count
+                        chunk_count = excluded.chunk_count,
+                        skipped_file_count = excluded.skipped_file_count,
+                        index_version = excluded.index_version
                     """,
                     (
                         index.root_path,
@@ -141,6 +144,7 @@ class RepositoryStore:
                         index.indexed_at.isoformat(),
                         index.file_count,
                         len(index.chunks),
+                        index.skipped_file_count,
                     ),
                 )
                 connection.executemany(
@@ -199,6 +203,11 @@ class RepositoryStore:
 
     def cached_files(self) -> dict[str, tuple[str, list[IndexedChunk]]]:
         with closing(self.connect()) as connection:
+            version = connection.execute(
+                "SELECT index_version FROM repository_connection WHERE id = 1"
+            ).fetchone()
+            if version is None or version[0] != 2:
+                return {}
             files = connection.execute(
                 "SELECT path, content_hash FROM repository_files"
             ).fetchall()

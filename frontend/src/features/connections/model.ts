@@ -60,6 +60,15 @@ export const repositoryConnectionSummarySchema = z.object({
   indexedAt: z.iso.datetime().nullable().optional(),
   fileCount: z.number().int().nonnegative().default(0),
   chunkCount: z.number().int().nonnegative().default(0),
+  skippedFileCount: z.number().int().nonnegative().default(0),
+  indexedLanguages: z
+    .array(
+      z.object({
+        language: z.string(),
+        fileCount: z.number().int().nonnegative(),
+      })
+    )
+    .default([]),
 })
 
 export type RepositoryConnectionSummary = z.infer<

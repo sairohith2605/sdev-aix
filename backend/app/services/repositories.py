@@ -1,5 +1,6 @@
 import heapq
 import os
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from dulwich.repo import Repo
 
 from app.codebase.indexer import RepositoryIndexer
 from app.codebase.models import (
+    IndexedLanguage,
     RepositoryBrowseResponse,
     RepositoryConnectionSummary,
     RepositoryConnectRequest,
@@ -48,6 +50,7 @@ class RepositoryService:
             record = None
         if record is None:
             return RepositoryConnectionSummary(connected=False)
+        languages = Counter(row["language"] for row in self.store.profile_rows())
         return RepositoryConnectionSummary(
             connected=True,
             status="ready",
@@ -63,6 +66,11 @@ class RepositoryService:
             indexedAt=record["indexed_at"],
             fileCount=record["file_count"],
             chunkCount=record["chunk_count"],
+            skippedFileCount=record["skipped_file_count"],
+            indexedLanguages=[
+                IndexedLanguage(language=language, fileCount=count)
+                for language, count in sorted(languages.items())
+            ],
         )
 
     def inspect(

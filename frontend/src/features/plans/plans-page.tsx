@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { isMockApiEnabled } from "@/config/mock-mode"
 import { getPlans } from "@/features/plans/api"
 import type { Plan } from "@/features/plans/model"
 import { cn } from "@/lib/utils"
@@ -45,6 +46,7 @@ function PlanCard({ plan }: { plan: Plan }) {
         <CardContent className="space-y-2">
           <p className="text-sm text-muted-foreground">
             Work item #{plan.workItemId}
+            {plan.source ? ` · ${plan.source.organization}` : ""}
           </p>
           <p className="text-xs text-muted-foreground">
             Updated {dateFormatter.format(new Date(plan.updatedAt))}
@@ -56,6 +58,7 @@ function PlanCard({ plan }: { plan: Plan }) {
 }
 
 export function PlansPage() {
+  const mockMode = isMockApiEnabled()
   const {
     data: plans,
     isPending,
@@ -105,14 +108,18 @@ export function PlansPage() {
         </div>
         <div className="rounded-lg border border-dashed border-border p-6 text-center">
           <p className="text-sm text-muted-foreground">
-            No plans yet. Create one from a work item.
+            {mockMode
+              ? "No plans yet. Create one from a work item."
+              : "No saved plans yet. Plan creation will be available when LangGraph is connected."}
           </p>
-          <Link
-            className={cn(buttonVariants({ variant: "outline" }), "mt-4")}
-            to="/work-items"
-          >
-            Browse work items
-          </Link>
+          {mockMode ? (
+            <Link
+              className={cn(buttonVariants({ variant: "outline" }), "mt-4")}
+              to="/work-items"
+            >
+              Browse work items
+            </Link>
+          ) : null}
         </div>
       </div>
     )

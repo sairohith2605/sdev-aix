@@ -22,6 +22,7 @@ import {
   testAdoConnection,
 } from "@/features/connections/api"
 import type { AdoResource } from "@/features/connections/model"
+import { CopilotConnectionCard } from "@/features/connections/copilot-connection-card"
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -359,6 +360,7 @@ export function ConnectionsPage() {
           </CardContent>
         </Card>
       )}
+      <CopilotConnectionCard />
     </div>
   )
 }

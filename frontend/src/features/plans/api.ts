@@ -1,12 +1,14 @@
-import type { Plan } from "@/features/plans/model"
+import type { Plan, PlanRun } from "@/features/plans/model"
 import {
   deletePlanRequest,
   finalizePlan,
   fetchPlan,
+  fetchPlanRun,
   fetchPlans,
   generatePlanDraft,
   generatePlan,
   reopenPlan,
+  retryPlanRun,
   requestPlanRevision,
   savePlan,
   submitPlanClarifications,
@@ -27,6 +29,17 @@ export async function getPlan(
   signal?: AbortSignal
 ): Promise<Plan> {
   return fetchPlan(planId, signal)
+}
+
+export async function getPlanRun(
+  planId: string,
+  signal?: AbortSignal
+): Promise<PlanRun> {
+  return fetchPlanRun(planId, signal)
+}
+
+export async function retryRun(planId: string): Promise<PlanRun> {
+  return retryPlanRun(planId)
 }
 
 export async function createPlan(
@@ -76,14 +89,16 @@ export async function revisePlan(
 
 export async function approvePlan(
   planId: string,
+  expectedVersion: number,
   signal?: AbortSignal
 ): Promise<Plan> {
-  return finalizePlan(planId, signal)
+  return finalizePlan(planId, expectedVersion, signal)
 }
 
 export async function reopenDraft(
   planId: string,
+  expectedVersion: number,
   signal?: AbortSignal
 ): Promise<Plan> {
-  return reopenPlan(planId, signal)
+  return reopenPlan(planId, expectedVersion, signal)
 }

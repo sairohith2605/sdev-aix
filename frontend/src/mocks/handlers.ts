@@ -7,6 +7,7 @@ import {
 } from "./plans"
 import { projectAssignees, projectSprints, workItems } from "./work-items"
 import {
+  getPlanRunUrl,
   getMockDelay,
   getMockPlanUrl,
   getMockPlansUrl,
@@ -69,6 +70,15 @@ function currentSprintWindow() {
 }
 
 const plansStore = new Map<string, Plan>()
+let mockCopilotConnected = false
+const planRuns = new Map<
+  string,
+  { id: string; planId: string; status: string; errorCode: string | null }
+>()
+
+export function resetMockCopilotConnection(): void {
+  mockCopilotConnected = false
+}
 
 function getPlansForWorkItem(workItemId: number): Plan[] {
   return Array.from(plansStore.values()).filter(
@@ -78,6 +88,7 @@ function getPlansForWorkItem(workItemId: number): Plan[] {
 
 export function resetMockPlans(): void {
   plansStore.clear()
+  planRuns.clear()
 }
 
 function generateId(): string {
@@ -111,6 +122,41 @@ function detailMarkdown(item: (typeof workItems)[number]) {
 }
 
 export const handlers = [
+  http.get("/api/connections/github-copilot", async () => {
+    await delay(getMockDelay())
+    return HttpResponse.json({
+      connected: mockCopilotConnected,
+      pat_configured: mockCopilotConnected,
+    })
+  }),
+  http.post("/api/connections/github-copilot/test", async ({ request }) => {
+    await delay(getMockDelay())
+    const body = (await request.json()) as Record<string, unknown>
+    if (typeof body.pat !== "string" || !body.pat.trim()) {
+      return HttpResponse.json(
+        { message: "Enter a Copilot PAT.", status: 422 },
+        { status: 422 }
+      )
+    }
+    return HttpResponse.json({ connected: true })
+  }),
+  http.put("/api/connections/github-copilot", async ({ request }) => {
+    await delay(getMockDelay())
+    const body = (await request.json()) as Record<string, unknown>
+    if (typeof body.pat !== "string" || !body.pat.trim()) {
+      return HttpResponse.json(
+        { message: "Enter a Copilot PAT.", status: 422 },
+        { status: 422 }
+      )
+    }
+    mockCopilotConnected = true
+    return HttpResponse.json({ connected: true, pat_configured: true })
+  }),
+  http.delete("/api/connections/github-copilot", async () => {
+    await delay(getMockDelay())
+    mockCopilotConnected = false
+    return HttpResponse.json({ connected: false })
+  }),
   http.get("/api/connections/azure-devops", async () => {
     await delay(getMockDelay())
     return HttpResponse.json({ connected: false })
@@ -350,7 +396,39 @@ export const handlers = [
       id: generateId(),
     }
     plansStore.set(plan.id, plan)
+    planRuns.set(plan.id, {
+      id: `run-${plan.id}`,
+      planId: plan.id,
+      status: "awaiting_input",
+      errorCode: null,
+    })
     return HttpResponse.json(plan, { status: 201 })
+  }),
+  http.get(getPlanRunUrl(":planId").toString(), async ({ params }) => {
+    await delay(getMockDelay())
+    const planId = params.planId as string
+    if (!plansStore.has(planId)) return planNotFound()
+    return HttpResponse.json(
+      planRuns.get(planId) ?? {
+        id: `run-${planId}`,
+        planId,
+        status: "awaiting_input",
+        errorCode: null,
+      }
+    )
+  }),
+  http.post(`${getPlanRunUrl(":planId")}/retry`, async ({ params }) => {
+    await delay(getMockDelay())
+    const planId = params.planId as string
+    if (!plansStore.has(planId)) return planNotFound()
+    const run = {
+      id: `run-${planId}`,
+      planId,
+      status: "awaiting_input",
+      errorCode: null,
+    }
+    planRuns.set(planId, run)
+    return HttpResponse.json(run)
   }),
   http.put(getMockPlanUrl(), async ({ params, request }) => {
     await delay(getMockDelay())
@@ -492,6 +570,12 @@ export const handlers = [
         updatedAt: now,
       }
       plansStore.set(updated.id, updated)
+      planRuns.set(updated.id, {
+        id: `run-${updated.id}-${submittedRound.id}`,
+        planId: updated.id,
+        status: followUpNeeded ? "awaiting_input" : "ready_for_draft",
+        errorCode: null,
+      })
       return HttpResponse.json(updated)
     }
   ),
@@ -704,6 +788,7 @@ export const handlers = [
     }
 
     plansStore.delete(planId)
+    planRuns.delete(planId)
     return new HttpResponse(null, { status: 204 })
   }),
 ]

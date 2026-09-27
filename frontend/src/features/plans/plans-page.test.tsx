@@ -14,6 +14,7 @@ import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { getMockPlansUrl, getMockPlanUrl } from "@/config/api"
 import { createPlan, submitClarifications } from "@/features/plans/api"
+import type { Plan } from "@/features/plans/model"
 import { resetMockPlans } from "@/mocks/handlers"
 import { server } from "@/mocks/server"
 import { workItems } from "@/mocks/work-items"
@@ -26,6 +27,8 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   vi.clearAllMocks()
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
 })
 beforeEach(resetMockPlans)
 
@@ -83,6 +86,188 @@ async function createProvisionalPlan(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("plans", () => {
+  it("shows the real-mode persistence checkpoint without mock generation", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    vi.stubEnv("VITE_USE_MOCK_API", "false")
+    renderAt()
+
+    expect(
+      await screen.findByText(
+        "No saved plans yet. Plan creation will be available when LangGraph is connected."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Browse work items" })).toBeNull()
+  })
+
+  it("saves real-mode edits through the API without writing IndexedDB", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    vi.stubEnv("VITE_USE_MOCK_API", "false")
+    vi.stubGlobal("indexedDB", {
+      open: () => {
+        throw new Error("IndexedDB must not be used for a backend plan")
+      },
+    })
+    const plan: Plan = {
+      id: "plan-backend-review",
+      workItemId: workItems[0].id,
+      source: { organization: "contoso", projectId: "project-1" },
+      workItem: workItems[0],
+      status: "review",
+      clarificationRounds: [],
+      conversation: [],
+      functionalPlan: [
+        { id: "overview", title: "Overview", content: "Initial content" },
+      ],
+      technicalPlan: [
+        { id: "design", title: "Design", content: "Initial design" },
+      ],
+      revision: 1,
+      revisionHistory: [],
+      version: 3,
+      createdAt: "2026-09-25T10:00:00Z",
+      updatedAt: "2026-09-25T10:00:00Z",
+      finalizedAt: null,
+    }
+    server.use(
+      http.get(getMockPlanUrl(), () => HttpResponse.json(plan)),
+      http.put(getMockPlanUrl(), async ({ request }) => {
+        const body = (await request.json()) as {
+          expectedVersion: number
+          functionalPlan: { content: string }[]
+        }
+        expect(body.expectedVersion).toBe(3)
+        return HttpResponse.json({
+          ...plan,
+          functionalPlan: body.functionalPlan,
+          version: 4,
+        })
+      })
+    )
+    const user = userEvent.setup()
+    renderAt("/plans/plan-backend-review")
+
+    const overview = await screen.findByRole("textbox", { name: "Overview" })
+    await user.clear(overview)
+    await user.type(overview, "Edited content")
+    await user.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(await screen.findByText("Changes saved")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Request Revision" })
+    ).toBeDisabled()
+  })
+
+  it("shows real agent questions and submits answers with the plan version", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    vi.stubEnv("VITE_USE_MOCK_API", "false")
+    const plan: Plan = {
+      id: "plan-real-questions",
+      workItemId: workItems[0].id,
+      source: { organization: "contoso", projectId: "project-1" },
+      workItem: workItems[0],
+      analysis: {
+        goal: "Show the employee directory",
+        facts: [{ statement: "User Story asks for a grid", source: "title" }],
+        gaps: ["The expected row limit is unknown"],
+        assumptions: ["Sorting uses the displayed columns"],
+        questions: [
+          { prompt: "Who uses this?", rationale: "Identify the audience" },
+        ],
+      },
+      status: "clarifying",
+      clarificationRounds: [
+        {
+          id: "round-1",
+          questions: [
+            {
+              id: "r1-q1",
+              prompt: "Who uses this?",
+              rationale: "Identify the audience",
+            },
+          ],
+          answers: [],
+          createdAt: "2026-09-25T10:00:00Z",
+          submittedAt: null,
+        },
+      ],
+      conversation: [],
+      functionalPlan: [],
+      technicalPlan: [],
+      revision: 0,
+      revisionHistory: [],
+      version: 2,
+      createdAt: "2026-09-25T10:00:00Z",
+      updatedAt: "2026-09-25T10:00:00Z",
+      finalizedAt: null,
+    }
+    let currentPlan = plan
+    let runStatus = "awaiting_input"
+    server.use(
+      http.get(getMockPlanUrl(), () => HttpResponse.json(currentPlan)),
+      http.get(`${getMockPlanUrl()}/run`, ({ params }) =>
+        HttpResponse.json({
+          id: "run-1",
+          planId: params.planId,
+          status: runStatus,
+          errorCode: null,
+        })
+      ),
+      http.post(`${getMockPlanUrl()}/clarifications`, async ({ request }) => {
+        const body = (await request.json()) as {
+          expectedVersion: number
+          answers: { questionId: string; value: string }[]
+        }
+        expect(body.expectedVersion).toBe(2)
+        expect(body.answers[0]).toMatchObject({
+          questionId: "r1-q1",
+          value: "HR administrators",
+        })
+        currentPlan = {
+          ...plan,
+          version: 3,
+          conversation: [
+            {
+              id: "user-round-1",
+              role: "user",
+              content: "r1-q1: HR administrators",
+              createdAt: "2026-09-25T11:00:00Z",
+            },
+          ],
+          clarificationRounds: [
+            {
+              ...plan.clarificationRounds[0],
+              answers: body.answers.map((answer) => ({
+                ...answer,
+                unknown: false,
+              })),
+              submittedAt: "2026-09-25T11:00:00Z",
+            },
+          ],
+        }
+        runStatus = "ready_for_draft"
+        return HttpResponse.json(currentPlan)
+      })
+    )
+    const user = userEvent.setup()
+    renderAt("/plans/plan-real-questions")
+
+    expect(await screen.findByText("Story Analysis")).toBeInTheDocument()
+    expect(
+      screen.getByText("The expected row limit is unknown")
+    ).toBeInTheDocument()
+    const answer = await screen.findByLabelText("Who uses this?")
+    await waitFor(() => expect(answer).toBeEnabled())
+    await user.type(answer, "HR administrators")
+    await user.click(screen.getByRole("button", { name: "Submit answers" }))
+
+    expect(
+      await screen.findByText("r1-q1: HR administrators")
+    ).toBeInTheDocument()
+  })
+
   it("accepts clarification answers and returns a deterministic follow-up", async () => {
     const plan = await createPlan({ workItemId: 1042 })
     const updated = await submitClarifications(plan.id, {
@@ -639,8 +824,6 @@ describe("plans", () => {
 
     await user.click(await screen.findByRole("button", { name: "Create plan" }))
 
-    expect(
-      await screen.findByText("Could not create the plan. Try again.")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Unavailable")).toBeInTheDocument()
   })
 })

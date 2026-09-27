@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     credential_encryption_key_file: Path | None = None
     ado_api_version: str = "7.1"
     ado_request_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    copilot_model: str = "auto"
+    copilot_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
+    copilot_data_path: Path = Path("./data/copilot")
 
     @model_validator(mode="after")
     def load_credential_encryption_key_file(self) -> "Settings":
@@ -42,6 +45,16 @@ class Settings(BaseSettings):
         if not path.is_absolute():
             path = Path(__file__).resolve().parents[1] / path
         return path
+
+    @property
+    def copilot_home(self) -> Path:
+        if self.copilot_data_path.is_absolute():
+            return self.copilot_data_path
+        return Path(__file__).resolve().parents[1] / self.copilot_data_path
+
+    @property
+    def graph_checkpoint_path(self) -> Path:
+        return self.sqlite_path.with_name("langgraph-checkpoints.db")
 
 
 @lru_cache

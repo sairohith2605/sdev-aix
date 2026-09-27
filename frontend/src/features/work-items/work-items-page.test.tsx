@@ -8,18 +8,25 @@ import {
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { http, HttpResponse } from "msw"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, useLocation } from "react-router"
 
 import { App } from "@/App"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { getMockWorkItemUrl, getMockWorkItemsUrl } from "@/config/api"
+import {
+  getMockPlanUrl,
+  getMockWorkItemUrl,
+  getMockWorkItemsUrl,
+} from "@/config/api"
 import type { WorkItemList } from "@/features/work-items/model"
 import { server } from "@/mocks/server"
 import { workItems } from "@/mocks/work-items"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllEnvs()
+})
 
 function LocationProbe() {
   const location = useLocation()
@@ -109,6 +116,55 @@ describe("work-item browser", () => {
     expect(within(metadata).getByText("P1")).toBeInTheDocument()
     const createPlan = screen.getByRole("button", { name: "Create plan" })
     expect(createPlan).toBeEnabled()
+  })
+
+  it("keeps real-mode plan creation disabled until LangGraph is available", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    vi.stubEnv("VITE_USE_MOCK_API", "false")
+    renderAt("/work-items/1042")
+
+    expect(
+      await screen.findByRole("button", { name: "Create plan" })
+    ).toBeDisabled()
+    expect(
+      screen.getByRole("link", { name: "Connect GitHub Copilot" })
+    ).toBeInTheDocument()
+  })
+
+  it("enables real-mode creation with both ADO and Copilot connected", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    vi.stubEnv("VITE_USE_MOCK_API", "false")
+    server.use(
+      http.get("/api/connections/azure-devops", () =>
+        HttpResponse.json({
+          connected: true,
+          organization: "contoso",
+          project_id: "project-1",
+        })
+      ),
+      http.get("/api/connections/github-copilot", () =>
+        HttpResponse.json({ connected: true, pat_configured: true })
+      ),
+      http.get(`${getMockPlanUrl()}/run`, ({ params }) =>
+        HttpResponse.json({
+          id: "run-1",
+          planId: params.planId,
+          status: "awaiting_input",
+          errorCode: null,
+        })
+      )
+    )
+    const user = userEvent.setup()
+    renderAt("/work-items/1042")
+
+    const create = await screen.findByRole("button", { name: "Create plan" })
+    await waitFor(() => expect(create).toBeEnabled())
+    await user.click(create)
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("/plans/")
+    )
   })
 
   it("renders ADO HTML in descriptions and acceptance criteria without unsafe markup", async () => {

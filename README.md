@@ -71,7 +71,7 @@ Compose keeps plans, the index, checkpoints, and the encryption key in a named `
 
 ## Development setup
 
-For development without Compose, use Python 3.12, Node.js 24, and npm 11. Set `CREDENTIAL_ENCRYPTION_KEY` in a private `backend/.env` (see `dist.env`); generate a value with:
+For development without Compose, use Python 3.12, Node.js 24, npm 11, and [uv](https://docs.astral.sh/uv/). Set `CREDENTIAL_ENCRYPTION_KEY` in a private `backend/.env` (see `dist.env`); generate a value with:
 
 ```sh
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -97,6 +97,14 @@ cd backend
 . .venv/bin/activate
 python -m app.codebase.worker
 ```
+
+Install the frontend dependencies from `frontend/` with `npm ci`. This also installs the Git pre-commit hook. The hook runs frontend lint, formatting, and TypeScript checks, followed by backend Ruff lint and formatting checks across the repository. Install the backend development dependencies once with:
+
+```sh
+uv sync --locked --extra dev --directory backend
+```
+
+The hook requires Node/npm and uv to be available on `PATH`. These checks are also available manually: run `npm run check:fast` from `frontend/`, then `uv run --locked --directory backend --extra dev ruff check .` and `uv run --locked --directory backend --extra dev ruff format --check .` from the repository root. Tests and production builds remain separate from pre-commit to keep commits fast.
 
 For the real API, set `VITE_USE_MOCK_API=false` in `frontend/.env.local`; the frontend otherwise uses a deterministic demo. Then run:
 

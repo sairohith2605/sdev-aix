@@ -1,0 +1,3 @@
+npm --prefix frontend run check:fast
+uv run --locked --directory backend --extra dev ruff check .
+uv run --locked --directory backend --extra dev ruff format --check .

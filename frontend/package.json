@@ -11,6 +11,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
+    "check:fast": "npm run lint && npm run format:check && npm run typecheck",
+    "prepare": "cd .. && husky frontend/.husky",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -49,6 +51,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17",
+    "husky": "^9.1.7",
     "jsdom": "^30.1.1",
     "msw": "^2.15.0",
     "prettier": "^3.9.6",
